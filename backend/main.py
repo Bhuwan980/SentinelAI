@@ -5,8 +5,13 @@ from user_service.routes.user_routes import router
 
 app = FastAPI(title="Sentinel AI Backend")
 
+@app.get("/")
+def test():
+    return {'message': 'hey bro'}
+
 # Create tables
 Base.metadata.create_all(bind=engine)
+
 
 # Register routers
 app.include_router(router)
