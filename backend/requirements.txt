@@ -3,3 +3,11 @@ alembic
 psycopg2-binary
 python-dotenv
 pydantic-settings
+uvicorn
+sqlalchemy 
+boto3 
+python-multipart
+imagededup
+pydantic\[email\]
+passlib
+jwt
