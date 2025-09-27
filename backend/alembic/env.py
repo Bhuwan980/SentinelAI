@@ -10,6 +10,7 @@ load_dotenv()
 # Import your Base and models
 from common.db.db import Base
 import user_service.models.user_models
+import ip_service.models.ip_models
 
 # Alembic Config object
 config = context.config

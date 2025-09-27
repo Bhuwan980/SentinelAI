@@ -1,13 +1,17 @@
+# main.py
+
 from fastapi import FastAPI
 from common.db.db import Base, engine
 from user_service.routes.user_routes import router as user_router
-from ip_service.routes import ip_routes  # import your IP routes module
+from ip_service.routes import ip_routes  # import the IP routes module
 
 app = FastAPI(title="Sentinel AI Backend")
+
 
 @app.get("/")
 def test():
     return {"message": "hey bro"}
+
 
 # Create tables
 Base.metadata.create_all(bind=engine)

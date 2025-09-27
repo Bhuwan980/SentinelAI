@@ -1,13 +1,35 @@
-fastapi
-alembic 
-psycopg2-binary
-python-dotenv
-pydantic-settings
-uvicorn
-sqlalchemy 
-boto3 
-python-multipart
-imagededup
-pydantic\[email\]
-passlib
+# 🔹 Web & API
+fastapi>=0.107.0
+uvicorn>=0.24.1
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+pydantic>=2.5.2
+pydantic[email]>=2.5.2
+passlib>=1.7.4
 jwt
+
+# 🔹 Database & Migrations
+sqlalchemy>=2.0.20
+psycopg2-binary>=2.9.9
+alembic>=1.11.1
+pgvector>=0.4.1
+
+# 🔹 AWS / Storage
+boto3>=1.26.0
+
+# 🔹 Images & Embeddings
+torch>=2.3.1
+torchvision>=0.18.1
+clip @ git+https://github.com/openai/CLIP.git
+Pillow>=10.1.0
+imagehash>=4.3.1
+imagededup
+ftfy>=6.1.1
+regex>=2025.9.1
+requests>=2.31.0
+tqdm>=4.65.0
+
+# 🔹 Background Jobs / Queue
+rq>=2.6.0
+redis>=6.4.0
+transformers

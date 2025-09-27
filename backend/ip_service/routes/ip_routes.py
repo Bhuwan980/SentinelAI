@@ -1,18 +1,20 @@
-import os
-from fastapi import APIRouter, UploadFile, File
-from ip_service.services.ip_services import save_uploaded_file, check_image_service
+# ip_routes.py
+
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from ip_service.services.ip_services import execute_ip_pipeline  # correct import
 
 router = APIRouter()
 
-@router.post("/check-image/")
-async def check_image(target: UploadFile = File(...)):
-    """
-    Upload one target image and check for duplicates in backend/images/candidates folder.
-    """
-    # Save the uploaded file
-    target_path = save_uploaded_file(target)  # pass the UploadFile object directly
 
-    # Run pHash check
-    results = check_image_service(target_path)
-
-    return {"target": target.filename, "results": results}
+@router.post("/run-pipeline")
+async def run_pipeline_endpoint(keyword: str, file: UploadFile = File(...)):
+    try:
+        file_bytes = await file.read()
+        result = execute_ip_pipeline(file_bytes, keyword)
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500, detail=result.get("error", "Pipeline failed")
+            )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
