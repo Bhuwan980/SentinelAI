@@ -6,21 +6,23 @@ from PIL import Image
 import torch
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-_clip_model = None
-_clip_processor = None
-_device = None
+# ---------------------- Globals ----------------------
+_clip_model: Optional[torch.nn.Module] = None
+_clip_processor: Optional[object] = None
+_device: Optional[str] = None
 _lock = threading.Lock()
 
-
+# ---------------------- Device Setup ----------------------
 def _get_device() -> str:
     global _device
     if _device is None:
         _device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-        logger.debug("Embedder device set to %s", _device)
+        logger.info("Embedder device set to %s", _device)
     return _device
 
-
+# ---------------------- Model Loader ----------------------
 def _ensure_model_loaded() -> None:
     global _clip_model, _clip_processor
     if _clip_model is not None and _clip_processor is not None:
@@ -30,17 +32,18 @@ def _ensure_model_loaded() -> None:
             return
         try:
             from transformers import CLIPProcessor, CLIPModel
-            logger.info("Loading CLIP model (this may take a while)...")
-            _clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-            _clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(_get_device())
-            logger.info("CLIP model loaded.")
+            model_name = "openai/clip-vit-large-patch14"  # Public, works well for digital art
+            logger.info("Loading CLIP model (%s)...", model_name)
+            _clip_processor = CLIPProcessor.from_pretrained(model_name)
+            _clip_model = CLIPModel.from_pretrained(model_name).to(_get_device())
+            logger.info("CLIP model loaded successfully.")
         except Exception:
-            logger.exception("Failed to load CLIP model; embedding will be unavailable.")
+            logger.exception("Failed to load CLIP model; embeddings will be unavailable.")
 
-
-def generate_embedding(image: Image.Image, text: str) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+# ---------------------- Embedding Generator ----------------------
+def generate_embedding(image: Image.Image, text: str, normalize: bool = True) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
     """
-    Generate (image_embedding, text_embedding) as torch tensors.
+    Generate (image_embedding, text_embedding) as torch tensors for digital art.
     Returns (None, None) on failure.
     """
     if image is None:
@@ -50,31 +53,28 @@ def generate_embedding(image: Image.Image, text: str) -> Tuple[Optional[torch.Te
     try:
         _ensure_model_loaded()
         if _clip_model is None or _clip_processor is None:
-            logger.warning("CLIP model not available; returning (None, None).")
             return None, None
 
         inputs = _clip_processor(text=[text or ""], images=image, return_tensors="pt", padding=True).to(_get_device())
         with torch.no_grad():
             outputs = _clip_model(**inputs)
-        return outputs.image_embeds[0], outputs.text_embeds[0]
+            img_emb = outputs.image_embeds[0]
+            txt_emb = outputs.text_embeds[0]
+
+        if normalize:
+            img_emb = img_emb / img_emb.norm()
+            txt_emb = txt_emb / txt_emb.norm()
+
+        return img_emb, txt_emb
     except torch.cuda.OutOfMemoryError:
-        logger.exception("OOM while creating embeddings")
+        logger.exception("OOM while generating embeddings")
         return None, None
     except Exception:
-        logger.exception("Unexpected error while generating embedding")
+        logger.exception("Unexpected error while generating embeddings")
         return None, None
 
-
-def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> Optional[float]:
-    """
-    Returns cosine similarity scalar or None on failure.
-    """
-    try:
-        if a is None or b is None:
-            return None
-        a = a / a.norm()
-        b = b / b.norm()
-        return float(torch.dot(a, b).item())
-    except Exception:
-        logger.exception("Failed to compute cosine similarity")
-        return None
+# ---------------------- Cosine Similarity ----------------------
+def cosine_similarity(a, b):
+    a = a / a.norm()
+    b = b / b.norm()
+    return torch.dot(a, b).item()
