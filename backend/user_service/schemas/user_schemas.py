@@ -1,9 +1,7 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Dict
 from datetime import datetime
 
-
-# ------------------ Base User ------------------
 class UserBase(BaseModel):
     username: str
     email: EmailStr
@@ -16,46 +14,47 @@ class UserBase(BaseModel):
     timezone: Optional[str] = "UTC"
     notification_preferences: Optional[Dict] = None
 
+class ProfileUpdateSchema(BaseModel):
+    full_name: Optional[str] = None
+    username: Optional[str] = None
+    phone_number: Optional[str] = None
+    bio: Optional[str] = None
+    profile_image_url: Optional[str] = None  # Add this field
 
-# ------------------ Create & Auth ------------------
+    class Config:
+        orm_mode = True
+
 class UserCreate(UserBase):
     password: str
-
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-
-# ------------------ Responses ------------------
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
     id: int
-    is_active: bool
-    is_verified: bool
-    auth_provider: str
+    username: str
+    email: EmailStr
+    full_name: str
+    phone_number: Optional[str] = None
+    bio: Optional[str] = None
+    profile_image_url: Optional[str] = None  # Add this field
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    last_login: Optional[datetime] = None
-
+    
     class Config:
+        orm_mode = True
         from_attributes = True
-
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-
-# ------------------ Forgot / Reset Password ------------------
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-
 
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
-
-# ------------------ Google Login ------------------
 class GoogleLoginRequest(BaseModel):
-    id_token: str   # Google’s ID token from frontend
+    id_token: str

@@ -1,204 +1,169 @@
-# scrapping/scrapper.py
 import logging
-import time
-from typing import List, Optional, Union
-from pathlib import Path
-import tempfile
-import json
+import aiohttp
+from typing import List, Dict, Optional
+from fastapi import HTTPException
 
-from icrawler.builtin import (
-    GoogleImageCrawler,
-    BingImageCrawler,
-    BaiduImageCrawler,
-    FlickrImageCrawler,
-    GreedyImageCrawler
-)
-
-# Configure logging
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | [%(levelname)s]: %(message)s",
-    datefmt="%m-%d-%Y / %I:%M:%S %p"
-)
+logging.basicConfig(level=logging.INFO)
 
+async def fetch_images(img_url: str, sources: List[str], serpapi_key: str) -> List[Dict]:
+    """
+    Fetch similar images using SerpAPI Google Reverse Image Search.
+    
+    Args:
+        img_url: Public URL of the image to search
+        sources: List of sources (must include 'serpapi')
+        serpapi_key: SerpAPI authentication key
+        
+    Returns:
+        List of dictionaries containing image match data
+        
+    Raises:
+        HTTPException: If SerpAPI request fails
+    """
+    if not serpapi_key:
+        logger.error("❌ SerpAPI key is missing")
+        raise HTTPException(status_code=500, detail="SerpAPI key not configured")
+    
+    if "serpapi" not in sources:
+        logger.error("❌ SerpAPI not in sources list")
+        raise HTTPException(status_code=400, detail="Invalid source specified")
 
-# ---------------------- Helper Functions ----------------------
-def _safe_crawl(
-    crawler,
-    keyword: Optional[str] = None,
-    max_num: int = 50,
-    delay: float = 1.0,
-    domains: Optional[List[str]] = None
-) -> list[str]:
-    """Crawl images safely and return list of image file paths."""
-    source_urls = []
-    try:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            crawler.storage.root_dir = tmp_dir
+    params = {
+        "engine": "google_reverse_image",
+        "image_url": img_url,
+        "api_key": serpapi_key
+    }
+    url = "https://serpapi.com/search"
 
-            # Handle crawler-specific parameters
-            if isinstance(crawler, FlickrImageCrawler):
-                crawler.crawl(max_num=max_num)
-            elif isinstance(crawler, GreedyImageCrawler):
-                if not domains:
-                    raise ValueError("GreedyImageCrawler requires 'domains' argument")
-                crawler.crawl(domains=domains, max_num=max_num)
-            else:
-                crawler.crawl(keyword=keyword, max_num=max_num)
-
-            # First try to get file_url from JSON metadata
-            for meta_file in Path(tmp_dir).rglob("*.json"):
+    async with aiohttp.ClientSession() as session:
+        try:
+            logger.info(f"🔍 Sending SerpAPI request with image_url: {img_url}")
+            
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                response_text = await response.text()
+                
+                if response.status != 200:
+                    logger.error(
+                        f"❌ SerpAPI request failed: status={response.status}, "
+                        f"url={img_url}, response={response_text[:500]}"
+                    )
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"SerpAPI error: {response.status} - {response_text[:200]}"
+                    )
+                
                 try:
-                    data = json.loads(meta_file.read_text())
-                    file_url = data.get("file_url")
-                    if file_url:
-                        source_urls.append(file_url)
-                except Exception:
-                    logger.exception("Failed to parse metadata file: %s", meta_file)
+                    data = await response.json()
+                except Exception as json_error:
+                    logger.error(f"❌ Failed to parse SerpAPI JSON response: {json_error}")
+                    logger.error(f"Response text: {response_text[:500]}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to parse SerpAPI response"
+                    )
+                
+                # Log the full response structure for debugging
+                logger.info(f"📊 SerpAPI response keys: {list(data.keys())}")
+                
+                # CRITICAL FIX: Use "image_results" instead of "inline_images"
+                # SerpAPI Google Reverse Image returns results in "image_results"
+                images = data.get("image_results", [])
+                
+                if not images:
+                    logger.warning(f"⚠️ No images found in 'image_results'. Checking alternative fields...")
+                    # Fallback: check other possible fields
+                    images = data.get("inline_images", []) or data.get("images", [])
+                
+                if not images:
+                    logger.warning(f"⚠️ No similar images found by SerpAPI for URL: {img_url}")
+                    return []
+                
+                # Process and normalize results
+                result = []
+                for idx, img in enumerate(images):
+                    try:
+                        # Extract image URL - try multiple fields
+                        image_url = (
+                            img.get("original") or 
+                            img.get("source") or 
+                            img.get("thumbnail")
+                        )
+                        
+                        if not image_url:
+                            logger.warning(f"⚠️ Image {idx} has no URL, skipping")
+                            continue
+                        
+                        # Extract thumbnail for downloading
+                        thumbnail = img.get("thumbnail") or img.get("source")
+                        
+                        result.append({
+                            "url": image_url,
+                            "content": thumbnail,  # This will be downloaded later
+                            "title": img.get("title", "Untitled"),
+                            "caption": img.get("source_name") or img.get("link", ""),
+                            "page_url": img.get("link", ""),
+                            "similarity": img.get("similarity_score", 0.0),
+                            "text_similarity": 0.0,
+                            "position": img.get("position", idx)
+                        })
+                        
+                    except Exception as img_error:
+                        logger.warning(f"⚠️ Failed to process image {idx}: {img_error}")
+                        continue
+                
+                logger.info(f"✅ Fetched {len(result)} images from SerpAPI for URL: {img_url}")
+                
+                if not result:
+                    logger.warning(f"⚠️ Processed 0 valid images from {len(images)} raw results")
+                
+                return result
+                
+        except aiohttp.ClientError as e:
+            logger.exception(f"❌ SerpAPI HTTP request failed for url={img_url}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"SerpAPI request error: {str(e)}"
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception(f"❌ Unexpected error in fetch_images for url={img_url}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error: {str(e)}"
+            )
 
-            # Fallback: collect actual downloaded image files
-            for img_file in Path(tmp_dir).rglob("*.*"):
-                if img_file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
-                    source_urls.append(str(img_file))
 
-            # Deduplicate
-            source_urls = list(set(source_urls))
-            logger.info("Crawled %d original source URLs/files", len(source_urls))
-            time.sleep(delay)
-            return source_urls
-
-    except Exception as e:
-        logger.error("Crawler failed: %s", e, exc_info=True)
-        return source_urls
-
-
-# ---------------------- Individual Engine Crawlers ----------------------
-def fetch_google_images(keyword: str, max_num: int = 50) -> List[str]:
+async def download_image_content(image_url: str) -> Optional[bytes]:
+    """
+    Download image content from a URL.
+    
+    Args:
+        image_url: URL of the image to download
+        
+    Returns:
+        Image bytes or None if download fails
+    """
     try:
-        crawler = GoogleImageCrawler(storage={"root_dir": "./images/google"})
-        return _safe_crawl(crawler, keyword, max_num)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                image_url, 
+                headers=headers, 
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as response:
+                if response.status == 200:
+                    content = await response.read()
+                    logger.info(f"✅ Downloaded image: {image_url} ({len(content)} bytes)")
+                    return content
+                else:
+                    logger.warning(f"⚠️ Failed to download image {image_url}: status {response.status}")
+                    return None
+                    
     except Exception as e:
-        logger.error("Google fetch failed: %s", e, exc_info=True)
-        return []
-
-
-def fetch_bing_images(keyword: str, max_num: int = 50) -> List[str]:
-    try:
-        crawler = BingImageCrawler(storage={"root_dir": "./images/bing"})
-        return _safe_crawl(crawler, keyword, max_num)
-    except Exception as e:
-        logger.error("Bing fetch failed: %s", e, exc_info=True)
-        return []
-
-
-def fetch_baidu_images(keyword: str, max_num: int = 50) -> List[str]:
-    try:
-        crawler = BaiduImageCrawler(storage={"root_dir": "./images/baidu"})
-        return _safe_crawl(crawler, keyword, max_num)
-    except Exception as e:
-        logger.error("Baidu fetch failed: %s", e, exc_info=True)
-        return []
-
-
-def fetch_flickr_images(tags: str, max_num: int = 50, api_key: Optional[str] = None) -> List[str]:
-    if not api_key:
-        logger.warning("Flickr API key not provided; skipping Flickr fetch.")
-        return []
-    try:
-        crawler = FlickrImageCrawler(api_key=api_key, storage={"root_dir": "./images/flickr"})
-        return _safe_crawl(crawler, max_num=max_num)
-    except Exception as e:
-        logger.error("Flickr fetch failed: %s", e, exc_info=True)
-        return []
-
-
-def fetch_greedy_images(domains: Union[str, List[str]], max_num: int = 50) -> List[str]:
-    """Crawl directly from a list of domains."""
-    if isinstance(domains, str):
-        domains = [domains]
-
-    all_images = []
-    try:
-        for domain in domains:
-            logger.info("Performing greedy crawl on domain: %s", domain)
-            crawler = GreedyImageCrawler(storage={"root_dir": "./images/greedy"})
-            all_images += _safe_crawl(crawler, max_num=max_num, domains=[domain])
-    except Exception as e:
-        logger.error("Greedy fetch failed: %s", e, exc_info=True)
-    return all_images
-
-
-# ---------------------- Multi-engine + Keyword Variations ----------------------
-def fetch_images_with_variations(
-    base_keywords: List[str],
-    sources: Optional[List[str]] = None,
-    max_num_per_source: int = 50,
-    flickr_api_key: Optional[str] = None,
-    greedy_domains: Optional[List[str]] = None
-) -> List[str]:
-    """Crawl images using multiple engines and optional greedy crawling."""
-    if sources is None:
-        sources = ["google", "bing", "baidu"]
-
-    all_images = []
-
-    for keyword in base_keywords:
-        logger.info("Searching for keyword variation: '%s'", keyword)
-        for src in sources:
-            if src.lower() == "google":
-                all_images += fetch_google_images(keyword, max_num_per_source)
-            elif src.lower() == "bing":
-                all_images += fetch_bing_images(keyword, max_num_per_source)
-            elif src.lower() == "baidu":
-                all_images += fetch_baidu_images(keyword, max_num_per_source)
-            elif src.lower() == "flickr":
-                all_images += fetch_flickr_images(keyword, max_num_per_source, flickr_api_key)
-            else:
-                logger.warning("Unknown source '%s', skipping.", src)
-
-    # Greedy crawl
-    if greedy_domains:
-        all_images += fetch_greedy_images(greedy_domains, max_num_per_source)
-
-    # Deduplicate
-    unique_images = list(set(all_images))
-    logger.info("Total unique images fetched: %d", len(unique_images))
-    return unique_images
-
-
-# ---------------------- Alias for backward compatibility ----------------------
-def fetch_image_urls(
-    keyword: str,
-    sources=None,
-    max_num: int = 20,
-    flickr_api_key=None,
-    greedy_domains=None
-):
-    return fetch_images_with_variations(
-        base_keywords=[keyword],
-        sources=sources,
-        max_num_per_source=max_num,
-        flickr_api_key=flickr_api_key,
-        greedy_domains=greedy_domains
-    )
-
-
-fetch_image_urls_dynamic = fetch_image_urls
-
-
-# ---------------------- Example Usage ----------------------
-if __name__ == "__main__":
-    keyword_variations = [
-        "angry anime character",
-        "furious anime girl",
-        "mad anime boy"
-    ]
-
-    images = fetch_images_with_variations(
-        base_keywords=keyword_variations,
-        sources=["google", "bing", "baidu"],
-        max_num_per_source=10,
-        greedy_domains=["deviantart.com", "pixiv.net"]
-    )
-    print(f"Fetched {len(images)} images.")
+        logger.warning(f"⚠️ Error downloading image {image_url}: {e}")
+        return None

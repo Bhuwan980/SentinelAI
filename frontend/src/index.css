@@ -1,0 +1,33 @@
+/* Tailwind base + custom reset */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Universal consistency */
+* { 
+  box-sizing: border-box; 
+}
+
+/* Smooth scrolling for all anchor links & page transitions */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Let app occupy the full viewport */
+html, body, #root { 
+  height: 100%; 
+  width: 100%;
+  margin: 0;
+}
+
+/* Default theme background & font */
+body {
+  background: linear-gradient(to bottom right, #f6f7f9, #f1faf7); /* soft greenish tone */
+  color: #111;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* Optional: smooth fade for route changes / reloads */
+body {
+  transition: background 0.3s ease, color 0.3s ease;
+}

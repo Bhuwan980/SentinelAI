@@ -125,11 +125,77 @@ class DmcaReports(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     match_id = Column(Integer, ForeignKey("ip_matches.id"), nullable=False)
+    
+    # URLs
     infringing_url = Column(String(1000), nullable=False)
     screenshot_url = Column(String(1000), nullable=True)
+    original_image_url = Column(String(1000), nullable=True)
+    
+    # Additional context
+    image_caption = Column(Text, nullable=True)
+    similarity_score = Column(Float, nullable=True)
+    
+    # Detailed metadata from suspected page
+    page_metadata = Column(JSON, nullable=True)  # Stores all scraped metadata
+    page_title = Column(String(500), nullable=True)
+    page_author = Column(String(255), nullable=True)
+    page_description = Column(Text, nullable=True)
+    page_tags = Column(JSON, nullable=True)  # Array of tags
+    page_copyright = Column(Text, nullable=True)
+    suspected_image_alt = Column(String(500), nullable=True)
+    suspected_image_title = Column(String(500), nullable=True)
+    
+    # ✅ NEW: Email tracking fields
+    email_sent = Column(Boolean, default=False, nullable=True)  # Changed to nullable=True for migration
+    email_sent_to = Column(String(255), nullable=True)  # Recipient email address
+    email_sent_at = Column(DateTime(timezone=True), nullable=True)  # When email was sent
+    email_status = Column(String(50), nullable=True)  # 'sent', 'failed', 'pending', 'delivered', 'bounced'
+    email_error_message = Column(Text, nullable=True)  # Error details if failed
+    email_subject = Column(String(500), nullable=True)  # Subject line used
+    email_delivery_id = Column(String(255), nullable=True)  # Email service provider message ID
+    
+    # Status tracking
     status = Column(String(50), default="pending")  # pending, submitted, completed, failed
+    
+    # Timestamps
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Relationships
     match = relationship("IpMatches")
+    user = relationship("User")
+    email_logs = relationship("EmailLog", back_populates="report", cascade="all, delete-orphan")
+
+
+class EmailLog(Base):
+    """
+    ✅ NEW TABLE: Tracks all email sending attempts for audit trail
+    Useful for debugging and showing email history to users
+    """
+    __tablename__ = "email_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("dmca_reports.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Email details
+    recipient_email = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    status = Column(String(50), nullable=False)  # 'sent', 'failed', 'pending', 'delivered', 'bounced', 'opened'
+    
+    # Tracking
+    provider_message_id = Column(String(255), nullable=True)  # From SendGrid/AWS SES
+    error_message = Column(Text, nullable=True)
+    
+    # Metadata
+    email_opened = Column(Boolean, default=False)  # Track if recipient opened email (if supported)
+    email_opened_at = Column(DateTime(timezone=True), nullable=True)
+    links_clicked = Column(Integer, default=0)  # Track engagement (if supported)
+    
+    # Timestamps
+    sent_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    report = relationship("DmcaReports", back_populates="email_logs")
     user = relationship("User")

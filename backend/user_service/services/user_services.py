@@ -1,114 +1,130 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from user_service.models.user_models import User
-from user_service.schemas.user_schemas import UserCreate
-from common.security.security import hash_password, verify_password, create_access_token
+from user_service.schemas.user_schemas import UserCreate, UserResponse
+from passlib.context import CryptContext
+from jose import jwt, JWTError
 from datetime import datetime, timedelta
-import jwt
-from common.config.config import settings
+from fastapi import HTTPException
+import json
+from common.config.config import settings  
 
-# Utility to truncate passwords to bcrypt safe length (72 bytes)
-BCRYPT_MAX_BYTES = 72
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def truncate_password(password: str) -> str:
-    encoded = password.encode("utf-8")[:BCRYPT_MAX_BYTES]  # max 72 bytes
-    return encoded.decode("utf-8", errors="ignore")
+# Load secure values from .env via settings
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES or 30
 
 
-# ---------------------- User CRUD & Auth ----------------------
-def create_user(db: Session, user: UserCreate):
-    """Create a new basic user with hashed password"""
-    safe_password = truncate_password(user.password)
-    hashed_pw = hash_password(safe_password)
+# ---------------------- Create User ----------------------
+def create_user(db: Session, user: UserCreate) -> UserResponse:
+    hashed_password = pwd_context.hash(user.password)
     db_user = User(
         username=user.username,
         email=user.email,
-        hashed_password=hashed_pw,
+        hashed_password=hashed_password,
+        full_name=user.full_name,
+        phone_number=user.phone_number,
+        profile_image_url=user.profile_image_url,
+        bio=user.bio,
+        location=user.location,
+        language=user.language,
+        timezone=user.timezone,
+        notification_preferences=json.dumps(user.notification_preferences or {}),
         is_active=True,
         is_verified=False,
         auth_provider="local",
-        created_at=datetime.now(tz=None),
-        updated_at=datetime.now(tz=None),
-        last_login=None
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
     )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+    try:
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    return UserResponse.from_orm(db_user)
 
 
-def authenticate_user(db: Session, email: str, password: str):
-    """Authenticate user with email and password"""
-    safe_password = truncate_password(password)
+# ---------------------- Authenticate ----------------------
+def authenticate_user(db: Session, email: str, password: str) -> User:
     user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(safe_password, user.hashed_password):
+    if not user or not pwd_context.verify(password, user.hashed_password):
         return None
     return user
 
 
-def login_user(user: User):
-    """Generate JWT access token for authenticated user"""
-    payload = {"sub": user.email, "iat": datetime.now(tz=None).timestamp()}
-    token = create_access_token(payload)
-    # update last login
-    user.last_login = datetime.now(tz=None)
-    return {"access_token": token, "token_type": "bearer"}
-
-
-# ---------------------- Forgot / Reset Password ----------------------
-def generate_reset_token(user: User, expires_minutes: int = 30):
+# ---------------------- Login ----------------------
+def login_user(user: User) -> dict:
+    """Generate JWT with email as subject"""
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
-        "sub": user.email,
-        "exp": datetime.now(tz=None) + timedelta(minutes=expires_minutes)
+        "sub": user.email,  # ✅ Email-based claim for get_current_user()
+        "iat": datetime.utcnow(),
+        "exp": expire
     }
-    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
-    return token
 
-
-def verify_reset_token(token: str):
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-        return payload.get("sub")
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
+        access_token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Token generation failed: {str(e)}")
 
 
-def reset_password(db: Session, token: str, new_password: str):
-    email = verify_reset_token(token)
-    if not email:
-        return False
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        return False
-    safe_password = truncate_password(new_password)
-    user.hashed_password = hash_password(safe_password)
-    db.commit()
-    return True
+# ---------------------- Reset Password ----------------------
+def generate_reset_token(user: User) -> str:
+    expire = datetime.utcnow() + timedelta(hours=1)
+    to_encode = {"sub": user.email, "exp": expire}  # ✅ use email consistently
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# ---------------------- Google OAuth Login ----------------------
-def login_with_google(db: Session, google_email: str, username: str = None):
-    """Login or create user with Google account"""
-    user = db.query(User).filter(User.email == google_email).first()
-    if not user:
-        # create new user
-        fake_password = jwt.encode({"sub": google_email}, settings.SECRET_KEY, algorithm="HS256")
-        safe_password = truncate_password(fake_password)
-        user = User(
-            email=google_email,
-            username=username or google_email.split("@")[0],
-            hashed_password=hash_password(safe_password),
-            is_active=True,
-            is_verified=True,
-            auth_provider="google",
-            created_at=datetime.now(tz=None),
-            updated_at=datetime.now(tz=None),
-            last_login=datetime.now(tz=None)
-        )
-        db.add(user)
+def reset_password(db: Session, token: str, new_password: str) -> bool:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        if not email:
+            return False
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return False
+        user.hashed_password = pwd_context.hash(new_password)
         db.commit()
         db.refresh(user)
-    else:
-        user.last_login = datetime.now(tz=None)
+        return True
+    except JWTError:
+        return False
+
+
+# ---------------------- Google Login ----------------------
+def login_with_google(db: Session, google_email: str, username: str = None) -> dict:
+    user = db.query(User).filter(User.email == google_email).first()
+    if not user:
+        try:
+            user = User(
+                username=username or google_email.split("@")[0],
+                email=google_email,
+                hashed_password="",
+                full_name=None,
+                phone_number=None,
+                profile_image_url=None,
+                bio=None,
+                location=None,
+                language="en",
+                timezone="UTC",
+                notification_preferences="{}",
+                is_active=True,
+                is_verified=True,
+                auth_provider="google",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="Username or email already exists")
     return login_user(user)

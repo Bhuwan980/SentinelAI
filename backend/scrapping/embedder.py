@@ -4,6 +4,7 @@ import logging
 from typing import Tuple, Optional
 from PIL import Image
 import torch
+import numpy as np
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +33,7 @@ def _ensure_model_loaded() -> None:
             return
         try:
             from transformers import CLIPProcessor, CLIPModel
-            model_name = "openai/clip-vit-large-patch14"  # Public, works well for digital art
+            model_name = "openai/clip-vit-large-patch14"
             logger.info("Loading CLIP model (%s)...", model_name)
             _clip_processor = CLIPProcessor.from_pretrained(model_name)
             _clip_model = CLIPModel.from_pretrained(model_name).to(_get_device())
@@ -42,10 +43,6 @@ def _ensure_model_loaded() -> None:
 
 # ---------------------- Embedding Generator ----------------------
 def generate_embedding(image: Image.Image, text: str, normalize: bool = True) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
-    """
-    Generate (image_embedding, text_embedding) as torch tensors for digital art.
-    Returns (None, None) on failure.
-    """
     if image is None:
         logger.warning("generate_embedding called with None image")
         return None, None
@@ -75,6 +72,34 @@ def generate_embedding(image: Image.Image, text: str, normalize: bool = True) ->
 
 # ---------------------- Cosine Similarity ----------------------
 def cosine_similarity(a, b):
-    a = a / a.norm()
-    b = b / b.norm()
-    return torch.dot(a, b).item()
+    # Deserialize if string
+    import ast
+    if isinstance(a, str):
+        try:
+            a = ast.literal_eval(a)
+        except Exception:
+            logger.warning("Failed to parse embedding a: %s", a)
+            return 0.0
+    if isinstance(b, str):
+        try:
+            b = ast.literal_eval(b)
+        except Exception:
+            logger.warning("Failed to parse embedding b: %s", b)
+            return 0.0
+
+    # Convert to numpy arrays
+    if isinstance(a, list):
+        a = np.array(a)
+    if isinstance(b, list):
+        b = np.array(b)
+
+    # Check dimension match
+    if a.shape != b.shape:
+        logger.warning("Skipping cosine similarity: embedding shapes do not match %s vs %s", a.shape, b.shape)
+        return 0.0
+
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))

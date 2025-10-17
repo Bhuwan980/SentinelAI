@@ -108,16 +108,16 @@ class ImageEmbeddingResponse(ImageEmbeddingBase):
         from_attributes = True
 
 
-
-
-
 class MatchResponse(BaseModel):
     id: int
     source_image_id: int
     matched_asset_id: int
-    similarity_score: Optional[float]
+    matched_image_url: Optional[str]
+    similarity_score: float
     user_confirmed: Optional[bool]
     created_at: datetime
 
     class Config:
         orm_mode = True
+
+

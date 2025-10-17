@@ -1,174 +1,266 @@
-# scrapping/pipeline.py
 import logging
 from io import BytesIO
-from pathlib import Path
-from time import sleep
-from typing import Union, List, Optional
-
-import requests
-from PIL import Image, UnidentifiedImageError
-
-from .uploader import generate_presigned_url, upload_to_s3
-from .captioner import generate_caption
-from .embedder import generate_embedding, cosine_similarity
-from .scrapper import fetch_image_urls_dynamic
-from ip_service.services.database import save_image, save_embedding
-from common.db.db import get_db
+from typing import Dict, List, Optional
+from scrapping.uploader import upload_to_s3
+from scrapping.scrapper import fetch_images, download_image_content
+from ip_service.services.database import save_image, save_ip_asset, save_ip_match
+from ip_service.services.ip_notification import create_notification
+from sqlalchemy.orm import Session
+from fastapi import HTTPException
+from common.config.config import settings
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-SIMILARITY_THRESHOLD = 0.99  # similarity threshold to consider duplicates
-MAX_IMAGES_PER_SOURCE = 50  # max images to fetch per source
-
-# ---------------------- Image Loading ----------------------
-def safe_load_image(file: Union[str, BytesIO]) -> Optional[Image.Image]:
-    """Load image from file path, URL, or BytesIO object safely."""
+async def run_pipeline(file: BytesIO, user_id: int, filename: str, db: Session) -> Dict:
+    """
+    Complete IP detection pipeline:
+    1. Upload original image to S3
+    2. Save to database
+    3. Search for similar images via SerpAPI
+    4. Download and store matches
+    5. Create notifications
+    
+    Args:
+        file: Image file bytes
+        user_id: User ID
+        filename: Original filename
+        db: Database session
+        
+    Returns:
+        Dict with success status, image_id, matches, and optional error
+    """
+    image_id = None
+    
     try:
-        if isinstance(file, str):
-            if file.startswith("http"):
-                resp = requests.get(file, timeout=10)
-                resp.raise_for_status()
-                return Image.open(BytesIO(resp.content)).convert("RGB")
-            else:
-                return Image.open(file).convert("RGB")
-        else:
-            return Image.open(file).convert("RGB")
-    except UnidentifiedImageError:
-        logger.error("Could not identify image: %s", file)
-        return None
-    except Exception:
-        logger.exception("Unexpected error loading image")
-        return None
-
-# ---------------------- Image Processing ----------------------
-def process_images(
-    image_urls: list[str],
-    db,
-    input_img_emb,
-    input_txt_emb,
-    user_id: int,
-    max_per_run: int = 50
-):
-    """Process crawled images, generate embeddings, and save to DB."""
-    matches = []
-    session = requests.Session()
-
-    for i, img_url in enumerate(image_urls):
-        if i >= max_per_run:
-            logger.info("Reached max_per_run=%d; stopping", max_per_run)
-            break
+        # ========== Step 1: Upload to S3 ==========
+        logger.info(f"📤 Step 1: Uploading original image for user {user_id}")
+        
         try:
-            # If the URL is not an HTTP link, generate presigned URL
-            if not img_url.startswith("http"):
-                img_url = generate_presigned_url(img_url)
-                if not img_url:
-                    logger.warning("Skipping image, failed to get presigned URL")
+            public_url = upload_to_s3(file, user_id, original_filename=filename)
+            logger.info(f"✅ Uploaded to S3: {public_url}")
+        except Exception as upload_error:
+            logger.exception(f"❌ S3 upload failed for user {user_id}")
+            return {
+                "success": False,
+                "image_id": None,
+                "matches": [],
+                "error": f"Failed to upload image: {str(upload_error)}"
+            }
+
+        # ========== Step 2: Save to Database ==========
+        logger.info(f"💾 Step 2: Saving image to database")
+        
+        try:
+            metadata = {"s3_path": public_url}
+            db_image = save_image(db, public_url, metadata, user_id=int(user_id))
+            
+            # CRITICAL FIX: Extract actual ID from the returned object
+            if hasattr(db_image, 'id'):
+                image_id = db_image.id
+            elif isinstance(db_image, int):
+                image_id = db_image
+            else:
+                logger.error(f"❌ Unexpected return type from save_image: {type(db_image)}")
+                return {
+                    "success": False,
+                    "image_id": None,
+                    "matches": [],
+                    "error": "Failed to extract image ID from database"
+                }
+            
+            logger.info(f"✅ Saved image id={image_id} for user_id={user_id}")
+            
+        except Exception as db_error:
+            logger.exception(f"❌ Database save failed for user {user_id}")
+            return {
+                "success": False,
+                "image_id": None,
+                "matches": [],
+                "error": f"Failed to save image to database: {str(db_error)}"
+            }
+
+        # ========== Step 3: Fetch Similar Images ==========
+        logger.info(f"🔍 Step 3: Searching for similar images via SerpAPI")
+        
+        serpapi_key = settings.SERP_API_KEY
+        if not serpapi_key:
+            logger.error("❌ SERP_API_KEY is not configured")
+            return {
+                "success": False,
+                "image_id": image_id,
+                "matches": [],
+                "error": "SERP_API_KEY not configured"
+            }
+        
+        logger.info(f"🔑 Using SERP_API_KEY: {serpapi_key[:4]}...{serpapi_key[-4:]}")
+
+        try:
+            similar_images = await fetch_images(
+                img_url=public_url, 
+                sources=["serpapi"], 
+                serpapi_key=serpapi_key
+            )
+            
+            if not similar_images:
+                logger.warning(f"⚠️ No similar images found by SerpAPI for image {image_id}")
+                return {
+                    "success": True,
+                    "image_id": image_id,
+                    "matches": [],
+                    "message": "No similar images found"
+                }
+            
+            logger.info(f"✅ Found {len(similar_images)} similar images")
+            
+        except HTTPException as api_error:
+            logger.error(f"❌ SerpAPI search failed: {api_error.detail}")
+            return {
+                "success": False,
+                "image_id": image_id,
+                "matches": [],
+                "error": f"Failed to fetch similar images: {api_error.detail}"
+            }
+        except Exception as search_error:
+            logger.exception(f"❌ Unexpected error during image search")
+            return {
+                "success": False,
+                "image_id": image_id,
+                "matches": [],
+                "error": f"Image search error: {str(search_error)}"
+            }
+
+        # ========== Step 4: Process and Store Matches ==========
+        logger.info(f"⚙️ Step 4: Processing {len(similar_images)} matches")
+        
+        matches = []
+        successful_matches = 0
+        failed_matches = 0
+        
+        for idx, sim_image in enumerate(similar_images):
+            try:
+                image_url = sim_image.get("url")
+                if not image_url:
+                    logger.warning(f"⚠️ Match {idx} has no URL, skipping")
+                    failed_matches += 1
                     continue
 
-            resp = session.get(img_url, timeout=10)
-            resp.raise_for_status()
-            img = Image.open(BytesIO(resp.content)).convert("RGB")
+                logger.info(f"📥 Processing match {idx + 1}/{len(similar_images)}: {image_url}")
 
-            caption = generate_caption(img)
-            img_emb, txt_emb = generate_embedding(img, caption)
+                # Download image content
+                content_url = sim_image.get("content") or image_url
+                image_bytes = await download_image_content(content_url)
+                
+                if not image_bytes:
+                    logger.warning(f"⚠️ Failed to download image {idx}: {content_url}")
+                    failed_matches += 1
+                    continue
 
-            # Save image metadata
-            img_entry = save_image(db, img_url, {"caption": caption}, user_id=user_id)
-            if img_emb is not None:
-                save_embedding(db, getattr(img_entry, "id", None), img_emb, model_name="clip-vit")
+                # Upload matched image to S3
+                try:
+                    match_url = upload_to_s3(
+                        image_bytes,
+                        user_id,
+                        original_filename=f"match_{image_id}_{idx}.jpg",
+                        prefix="uploads/crawled"
+                    )
+                    logger.info(f"✅ Uploaded match {idx} to S3: {match_url}")
+                except Exception as match_upload_error:
+                    logger.warning(f"⚠️ Failed to upload match {idx} to S3: {match_upload_error}")
+                    failed_matches += 1
+                    continue
 
-            # Compute similarity with user-uploaded image
-            sim_img = cosine_similarity(input_img_emb, img_emb)
-            sim_txt = cosine_similarity(input_txt_emb, txt_emb)
-            if (sim_img and sim_img >= SIMILARITY_THRESHOLD) or (sim_txt and sim_txt >= SIMILARITY_THRESHOLD):
-                logger.info("⚠️ Match found! URL: %s | ImgSim: %.2f | TxtSim: %.2f", img_url, sim_img, sim_txt)
+                # Save IP asset
+                try:
+                    asset = save_ip_asset(
+                        db,
+                        user_id=user_id,
+                        title=sim_image.get("title", "Matched Image"),
+                        file_url=match_url,
+                        description=sim_image.get("caption", ""),
+                        asset_type="image"
+                    )
+                    
+                    # Extract asset ID
+                    asset_id = asset.id if hasattr(asset, 'id') else asset
+                    
+                except Exception as asset_error:
+                    logger.warning(f"⚠️ Failed to save IP asset for match {idx}: {asset_error}")
+                    failed_matches += 1
+                    continue
+
+                # Save IP match
+                try:
+                    similarity_score = float(sim_image.get("similarity", 0.0))
+                    
+                    match_record = save_ip_match(
+                        db,
+                        source_image_id=image_id,
+                        matched_asset_id=asset_id,
+                        similarity_score=similarity_score
+                    )
+                    
+                    # Extract match ID
+                    match_id = match_record.id if hasattr(match_record, 'id') else match_record
+                    
+                    logger.info(f"✅ Saved IP match {match_id} with similarity {similarity_score:.2f}")
+                    
+                except Exception as match_error:
+                    logger.warning(f"⚠️ Failed to save IP match for match {idx}: {match_error}")
+                    failed_matches += 1
+                    continue
+
+                # Create notification
+                try:
+                    create_notification(
+                        db,
+                        user_id,
+                        f"Potential IP match found for image ID {image_id} with similarity {similarity_score:.2f}"
+                    )
+                except Exception as notif_error:
+                    logger.warning(f"⚠️ Failed to create notification for match {idx}: {notif_error}")
+                    # Don't fail the match if notification fails
+
+                # Add to results
                 matches.append({
-                    "url": img_url,
-                    "caption": caption,
-                    "image_similarity": sim_img,
-                    "text_similarity": sim_txt
+                    "id": match_id,
+                    "asset_id": asset_id,
+                    "url": match_url,
+                    "caption": sim_image.get("caption", ""),
+                    "image_similarity": similarity_score,
+                    "text_similarity": float(sim_image.get("text_similarity", 0.0)),
+                    "page_url": sim_image.get("page_url", "")
                 })
+                
+                successful_matches += 1
+                
+            except Exception as match_error:
+                logger.exception(f"❌ Unexpected error processing match {idx}")
+                failed_matches += 1
+                continue
 
-        except Exception:
-            logger.exception("Error processing image %s", img_url)
-
-    return matches
-
-# ---------------------- Pipeline Runner ----------------------
-def run_pipeline(
-    user_image: Union[str, BytesIO],
-    user_id: int,
-    sources: Optional[List[str]] = None,
-    max_crawl: int = 20,
-    flickr_api_key: Optional[str] = None,
-    greedy_domains: Optional[List[str]] = None
-):
-    """
-    Complete duplicate detection pipeline for a user.
-
-    Steps:
-    1. Load user image
-    2. Generate caption & embeddings
-    3. Upload user image to S3 in user-specific folder
-    4. Save original image metadata
-    5. Fetch related images from multiple sources
-    6. Process images, generate embeddings, and detect matches
-    7. Return matches
-    """
-    db = next(get_db())
-    sources = sources or ["google", "bing"]
-
-    # Load user image
-    input_image = safe_load_image(user_image)
-    if input_image is None:
-        return {"success": False, "error": "Could not load input image"}
-
-    # Generate caption & embeddings
-    caption = generate_caption(input_image) or "image"
-    input_img_emb, input_txt_emb = generate_embedding(input_image, caption)
-    if input_img_emb is None or input_txt_emb is None:
-        return {"success": False, "error": "Failed to generate embeddings for input image"}
-
-    # Upload image to S3 under user-specific folder
-    try:
-        if isinstance(user_image, (str, BytesIO)):
-            if isinstance(user_image, str) and user_image.startswith("http"):
-                input_url = user_image
-            else:
-                file_bytes = user_image.read() if isinstance(user_image, BytesIO) else Path(user_image).read_bytes()
-                input_url = upload_to_s3(file_bytes, user_id=user_id, prefix="uploads")
-                logger.info("Uploaded input image for user %d: %s", user_id, input_url)
-        else:
-            input_url = None
+        # ========== Step 5: Return Results ==========
+        logger.info(
+            f"✅ Pipeline completed: {successful_matches} successful matches, "
+            f"{failed_matches} failed matches"
+        )
+        
+        return {
+            "success": True,
+            "image_id": image_id,
+            "matches": matches,
+            "stats": {
+                "total_found": len(similar_images),
+                "successful": successful_matches,
+                "failed": failed_matches
+            }
+        }
+        
     except Exception as e:
-        input_url = None
-        logger.warning("Upload failed: %s", e)
-
-    # Save metadata of the uploaded image
-    save_image(db, input_url, {"caption": caption}, user_id=user_id)
-
-    # Fetch related images
-    crawled_urls = fetch_image_urls_dynamic(
-        caption,
-        sources=sources,
-        max_num=max_crawl,
-        flickr_api_key=flickr_api_key,
-        greedy_domains=greedy_domains
-    )
-
-    # Process crawled images
-    matches = process_images(crawled_urls, db, input_img_emb, input_txt_emb, user_id=user_id, max_per_run=max_crawl)
-
-    return {"success": True, "matches": matches}
-
-# ---------------------- CLI Test ----------------------
-if __name__ == "__main__":
-    # Test with URL
-    result = run_pipeline("https://i.imgur.com/zoros.jpeg", user_id=1)
-    print(result)
-
-    # Test with local file
-    with open("local_zoro.jpg", "rb") as f:
-        result = run_pipeline(f, user_id=1)
-        print(result)
+        logger.exception(f"❌ Critical error in run_pipeline for user {user_id}")
+        return {
+            "success": False,
+            "image_id": image_id,
+            "matches": [],
+            "error": f"Pipeline failed: {str(e)}"
+        }
