@@ -189,21 +189,26 @@ async def run_pipeline(file: BytesIO, user_id: int, filename: str, db: Session) 
                     failed_matches += 1
                     continue
 
-                # Save IP match
+                # ✅ CRITICAL FIX: Save IP match WITH scraped_data
                 try:
                     similarity_score = float(sim_image.get("similarity", 0.0))
                     
+                    # ✅ NEW: Pass the complete scraped data
                     match_record = save_ip_match(
                         db,
                         source_image_id=image_id,
                         matched_asset_id=asset_id,
-                        similarity_score=similarity_score
+                        similarity_score=similarity_score,
+                        scraped_data=sim_image  # ✅ PASS THE COMPLETE SCRAPED DATA!
                     )
                     
                     # Extract match ID
                     match_id = match_record.id if hasattr(match_record, 'id') else match_record
                     
-                    logger.info(f"✅ Saved IP match {match_id} with similarity {similarity_score:.2f}")
+                    logger.info(
+                        f"✅ Saved IP match {match_id} with similarity {similarity_score:.2f} "
+                        f"and scraped data (page_url: {sim_image.get('page_url', 'N/A')})"
+                    )
                     
                 except Exception as match_error:
                     logger.warning(f"⚠️ Failed to save IP match for match {idx}: {match_error}")
@@ -229,7 +234,7 @@ async def run_pipeline(file: BytesIO, user_id: int, filename: str, db: Session) 
                     "caption": sim_image.get("caption", ""),
                     "image_similarity": similarity_score,
                     "text_similarity": float(sim_image.get("text_similarity", 0.0)),
-                    "page_url": sim_image.get("page_url", "")
+                    "page_url": sim_image.get("page_url", "")  # ✅ Include page URL
                 })
                 
                 successful_matches += 1

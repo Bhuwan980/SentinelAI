@@ -8,7 +8,6 @@ from scrapping.pipeline import run_pipeline
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-
 async def execute_ip_pipeline(file_bytes: bytes, user_id: int, filename: str, db: Session) -> Dict:
     """
     Run the IP detection pipeline for a specific user.
@@ -31,7 +30,8 @@ async def execute_ip_pipeline(file_bytes: bytes, user_id: int, filename: str, db
 
         if not isinstance(result, dict):
             logger.warning("run_pipeline returned non-dict result, converting to dict")
-            result = {"success": False, "error": str(result)}
+            result = {"success"
+: False, "error": str(result)}
 
         return result
 

@@ -10,7 +10,8 @@ import Dashboard from "./pages/Dashboard";
 import MatchesConfirm from "./pages/MatchConfirm";
 import NoMatch from "./pages/NoMatch";
 import Reports from "./pages/Reports";
-import MatchHistory from "./pages/MatchHistory";
+import Matches from "./pages/Matches";
+import ReviewHistory from "./pages/ReviewHistory";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function AppRoutes() {
@@ -31,10 +32,26 @@ export default function AppRoutes() {
         }
       />
       <Route
+        path="/matches"
+        element={
+          <ProtectedRoute>
+            <Matches />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/matches-confirm/:imageId"
         element={
           <ProtectedRoute>
             <MatchesConfirm />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/review-history"
+        element={
+          <ProtectedRoute>
+            <ReviewHistory />
           </ProtectedRoute>
         }
       />
@@ -51,14 +68,6 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <Reports />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/match-history"
-        element={
-          <ProtectedRoute>
-            <MatchHistory />
           </ProtectedRoute>
         }
       />

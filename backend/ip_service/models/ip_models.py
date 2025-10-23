@@ -1,4 +1,9 @@
 # ip_service/models/ip_models.py
+"""
+Complete IP Models with all DMCA fields for comprehensive tracking.
+Updated: 2025-01-20
+"""
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -67,6 +72,10 @@ class IpAssets(Base):
     description = Column(Text)
     asset_type = Column(String(50))
     file_url = Column(String(500))
+    
+    # Store complete SerpAPI response for this asset
+    serp_raw_data = Column(JSON, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -74,6 +83,7 @@ class IpAssets(Base):
     embeddings = relationship("IpEmbeddings", back_populates="asset", cascade="all, delete-orphan")
     matches = relationship("IpMatches", back_populates="matched_asset", cascade="all, delete-orphan")
     notifications = relationship("Notifications", back_populates="asset", cascade="all, delete-orphan")
+    dmca_reports = relationship("DmcaReports", back_populates="original_asset", cascade="all, delete-orphan")
 
 
 class IpEmbeddings(Base):
@@ -96,6 +106,13 @@ class IpMatches(Base):
     matched_asset_id = Column(Integer, ForeignKey("ip_assets.id"), nullable=False)
     similarity_score = Column(Float, nullable=False)
     user_confirmed = Column(Boolean, nullable=True)
+
+    status = Column(String(50), default="pending", nullable=False)  # 'pending', 'confirmed', 'declined'
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)   # When user reviewed the match
+    
+    # Store the complete scraped data for this specific match
+    scraped_data = Column(JSON, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     source_image = relationship("Images", back_populates="matches")
@@ -120,57 +137,97 @@ class Notifications(Base):
 
 
 class DmcaReports(Base):
+    """
+    Comprehensive DMCA Reports with full SerpAPI data extraction.
+    
+    Design: One report per infringement (separate tracking)
+    Grouping: Use original_asset_id and infringement_group_id
+    """
     __tablename__ = "dmca_reports"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     match_id = Column(Integer, ForeignKey("ip_matches.id"), nullable=False)
     
-    # URLs
-    infringing_url = Column(String(1000), nullable=False)
-    screenshot_url = Column(String(1000), nullable=True)
-    original_image_url = Column(String(1000), nullable=True)
+    # ===== GROUPING FIELDS =====
+    original_asset_id = Column(Integer, ForeignKey("ip_assets.id"), nullable=True)
+    infringement_group_id = Column(String(50), nullable=True)  # UUID for grouping multiple infringements
     
-    # Additional context
+    # ===== TIER 1: CRITICAL FIELDS =====
+    # URLs - The actual locations
+    infringing_url = Column(String(1000), nullable=False)        # ✅ PAGE URL where image is used
+    suspected_image_url = Column(String(1000), nullable=True)    # ✅ Direct image URL
+    original_image_url = Column(String(1000), nullable=True)     # ✅ User's original image S3 URL
+    thumbnail_url = Column(String(1000), nullable=True)          # ✅ Preview thumbnail
+    screenshot_url = Column(String(1000), nullable=True)         # ✅ Screenshot evidence
+    
+    # Source Attribution
+    source_domain = Column(String(255), nullable=True)           # ✅ example.com
+    source_name = Column(String(255), nullable=True)             # ✅ Website/company name
+    page_title = Column(String(500), nullable=True)              # ✅ Page title
+    
+    # Commercial Detection - CRITICAL for IP protection
+    is_product = Column(Boolean, default=False, nullable=True)   # ✅ Is it being sold?
+    product_price = Column(String(50), nullable=True)            # ✅ Price if selling
+    product_currency = Column(String(10), nullable=True)         # ✅ USD, EUR, etc.
+    marketplace = Column(String(100), nullable=True)             # ✅ Etsy, Amazon, eBay, etc.
+    
+    # Similarity & Position
+    similarity_score = Column(Float, nullable=True)              # ✅ Match confidence (0.0-1.0)
+    serp_position = Column(Integer, nullable=True)               # ✅ Search result rank
+    
+    # ===== TIER 2: IMPORTANT FIELDS =====
+    # Context & Description
+    page_description = Column(Text, nullable=True)               # ✅ Page meta description
+    page_snippet = Column(Text, nullable=True)                   # ✅ Search result snippet
+    page_author = Column(String(255), nullable=True)             # ✅ Content author
+    
+    # Metadata
+    page_tags = Column(JSON, nullable=True)                      # ✅ Array of keywords/tags
+    source_logo = Column(String(500), nullable=True)             # ✅ Website favicon/logo URL
+    best_guess = Column(String(255), nullable=True)              # ✅ Google's image identification
+    
+    # Image Technical Details
+    image_width = Column(Integer, nullable=True)                 # ✅ Image width in pixels
+    image_height = Column(Integer, nullable=True)                # ✅ Image height in pixels
+    image_format = Column(String(20), nullable=True)             # ✅ jpg, png, webp, etc.
+    
+    # ===== TIER 3: RAW DATA & DEBUG =====
+    raw_serp_data = Column(JSON, nullable=True)                  # ✅ Complete SerpAPI response
+    
+    # ===== LEGACY FIELDS (Keep for compatibility) =====
     image_caption = Column(Text, nullable=True)
-    similarity_score = Column(Float, nullable=True)
-    
-    # Detailed metadata from suspected page
-    page_metadata = Column(JSON, nullable=True)  # Stores all scraped metadata
-    page_title = Column(String(500), nullable=True)
-    page_author = Column(String(255), nullable=True)
-    page_description = Column(Text, nullable=True)
-    page_tags = Column(JSON, nullable=True)  # Array of tags
+    page_metadata = Column(JSON, nullable=True)
     page_copyright = Column(Text, nullable=True)
     suspected_image_alt = Column(String(500), nullable=True)
     suspected_image_title = Column(String(500), nullable=True)
     
-    # ✅ NEW: Email tracking fields
-    email_sent = Column(Boolean, default=False, nullable=True)  # Changed to nullable=True for migration
-    email_sent_to = Column(String(255), nullable=True)  # Recipient email address
-    email_sent_at = Column(DateTime(timezone=True), nullable=True)  # When email was sent
-    email_status = Column(String(50), nullable=True)  # 'sent', 'failed', 'pending', 'delivered', 'bounced'
-    email_error_message = Column(Text, nullable=True)  # Error details if failed
-    email_subject = Column(String(500), nullable=True)  # Subject line used
-    email_delivery_id = Column(String(255), nullable=True)  # Email service provider message ID
+    # ===== EMAIL TRACKING =====
+    email_sent = Column(Boolean, default=False, nullable=True)
+    email_sent_to = Column(String(255), nullable=True)
+    email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    email_status = Column(String(50), nullable=True)             # 'sent', 'failed', 'pending', 'delivered'
+    email_error_message = Column(Text, nullable=True)
+    email_subject = Column(String(500), nullable=True)
+    email_delivery_id = Column(String(255), nullable=True)
     
-    # Status tracking
-    status = Column(String(50), default="pending")  # pending, submitted, completed, failed
-    
-    # Timestamps
+    # ===== STATUS & TIMESTAMPS =====
+    status = Column(String(50), default="pending")               # pending, sent, resolved, rejected
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    detected_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     # Relationships
     match = relationship("IpMatches")
     user = relationship("User")
+    original_asset = relationship("IpAssets", back_populates="dmca_reports")
     email_logs = relationship("EmailLog", back_populates="report", cascade="all, delete-orphan")
 
 
 class EmailLog(Base):
     """
-    ✅ NEW TABLE: Tracks all email sending attempts for audit trail
-    Useful for debugging and showing email history to users
+    Comprehensive email tracking for DMCA reports.
+    Tracks all email attempts, delivery status, and engagement.
     """
     __tablename__ = "email_logs"
 
@@ -183,14 +240,14 @@ class EmailLog(Base):
     subject = Column(String(500), nullable=False)
     status = Column(String(50), nullable=False)  # 'sent', 'failed', 'pending', 'delivered', 'bounced', 'opened'
     
-    # Tracking
-    provider_message_id = Column(String(255), nullable=True)  # From SendGrid/AWS SES
+    # Provider tracking
+    provider_message_id = Column(String(255), nullable=True)
     error_message = Column(Text, nullable=True)
     
-    # Metadata
-    email_opened = Column(Boolean, default=False)  # Track if recipient opened email (if supported)
+    # Engagement metrics
+    email_opened = Column(Boolean, default=False)
     email_opened_at = Column(DateTime(timezone=True), nullable=True)
-    links_clicked = Column(Integer, default=0)  # Track engagement (if supported)
+    links_clicked = Column(Integer, default=0)
     
     # Timestamps
     sent_at = Column(DateTime(timezone=True), default=datetime.utcnow)

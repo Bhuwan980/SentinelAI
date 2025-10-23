@@ -19,10 +19,10 @@ class ProfileUpdateSchema(BaseModel):
     username: Optional[str] = None
     phone_number: Optional[str] = None
     bio: Optional[str] = None
-    profile_image_url: Optional[str] = None  # Add this field
+    profile_image_url: Optional[str] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class UserCreate(UserBase):
     password: str
@@ -35,19 +35,19 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: EmailStr
-    full_name: str
+    full_name: Optional[str] = None 
     phone_number: Optional[str] = None
     bio: Optional[str] = None
-    profile_image_url: Optional[str] = None  # Add this field
+    profile_image_url: Optional[str] = None
     created_at: datetime
     
     class Config:
-        orm_mode = True
         from_attributes = True
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: Optional[UserResponse] = None  
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
@@ -57,4 +57,5 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 class GoogleLoginRequest(BaseModel):
-    id_token: str
+    email: EmailStr
+    username: Optional[str] = None

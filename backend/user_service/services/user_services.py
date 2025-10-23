@@ -58,22 +58,36 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
 
 
 # ---------------------- Login ----------------------
+# ---------------------- Login ----------------------
 def login_user(user: User) -> dict:
-    """Generate JWT with email as subject"""
+    """Generate JWT with email as subject and return user data"""
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
-        "sub": user.email,  # ✅ Email-based claim for get_current_user()
+        "sub": user.email,
         "iat": datetime.utcnow(),
         "exp": expire
     }
 
     try:
         access_token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-        return {"access_token": access_token, "token_type": "bearer"}
+        
+        # ✅ Return user data along with token
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "full_name": user.full_name,
+                "phone_number": user.phone_number,
+                "bio": user.bio,
+                "profile_image_url": user.profile_image_url,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            }
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Token generation failed: {str(e)}")
-
-
 # ---------------------- Reset Password ----------------------
 def generate_reset_token(user: User) -> str:
     expire = datetime.utcnow() + timedelta(hours=1)
@@ -99,15 +113,26 @@ def reset_password(db: Session, token: str, new_password: str) -> bool:
 
 
 # ---------------------- Google Login ----------------------
-def login_with_google(db: Session, google_email: str, username: str = None) -> dict:
+# ---------------------- Google Login ----------------------
+def login_with_google(db: Session, google_email: str, username: str = None, full_name: str = None) -> dict:
+    """
+    Login or create user with Google OAuth.
+    
+    Args:
+        google_email: Email from Google
+        username: Username (optional, defaults to email prefix)
+        full_name: Full name from Google (optional)
+    """
     user = db.query(User).filter(User.email == google_email).first()
+    
     if not user:
+        # Create new user with Google account
         try:
             user = User(
                 username=username or google_email.split("@")[0],
                 email=google_email,
-                hashed_password="",
-                full_name=None,
+                hashed_password="",  # Google users don't have passwords
+                full_name=full_name,  # ✅ Use full_name from Google
                 phone_number=None,
                 profile_image_url=None,
                 bio=None,
@@ -127,4 +152,11 @@ def login_with_google(db: Session, google_email: str, username: str = None) -> d
         except IntegrityError:
             db.rollback()
             raise HTTPException(status_code=400, detail="Username or email already exists")
+    else:
+        # Update full_name if not set and provided by Google
+        if not user.full_name and full_name:
+            user.full_name = full_name
+            db.commit()
+            db.refresh(user)
+    
     return login_user(user)

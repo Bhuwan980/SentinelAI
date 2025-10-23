@@ -323,3 +323,22 @@ def delete_avatar(
         "message": "Profile picture deleted successfully",
         "s3_deleted": deleted
     }
+
+
+
+@router.post("/google-login", response_model=TokenResponse)
+def google_login(
+    email: str, 
+    username: str = None,
+    full_name: str = None,  
+    db: Session = Depends(get_db)
+):
+    """
+    Login or create user with Google OAuth.
+    
+    Args:
+        email: Email from Google account (required)
+        username: Username (optional, defaults to email prefix)
+        full_name: Full name from Google (optional)
+    """
+    return login_with_google(db, google_email=email, username=username, full_name=full_name)

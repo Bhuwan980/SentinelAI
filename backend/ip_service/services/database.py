@@ -151,18 +151,54 @@ def save_ip_embedding(db: Session, asset_id: int, vector: List, model_name: str 
         logger.exception("❌ Failed to save IP embedding: %s", e)
         raise
 
-def save_ip_match(db: Session, source_image_id: int, matched_asset_id: int, similarity_score: float) -> IpMatches:
+
+# ✅ UPDATED: Now accepts scraped_data parameter
+def save_ip_match(
+    db: Session, 
+    source_image_id: int, 
+    matched_asset_id: int, 
+    similarity_score: float,
+    scraped_data: Optional[Dict] = None  # ✅ NEW PARAMETER
+) -> IpMatches:
+    """
+    Save IP match with optional scraped data from SerpAPI.
+    
+    Args:
+        db: Database session
+        source_image_id: ID of the source image
+        matched_asset_id: ID of the matched asset
+        similarity_score: Similarity score (0.0-1.0)
+        scraped_data: Complete scraped data from SerpAPI (optional)
+    """
     db_match = IpMatches(
         source_image_id=source_image_id,
         matched_asset_id=matched_asset_id,
         similarity_score=similarity_score,
+        scraped_data=scraped_data,  # ✅ STORE SCRAPED DATA
         created_at=datetime.utcnow()
     )
     try:
         db.add(db_match)
         db.commit()
         db.refresh(db_match)
-        logger.info("✅ Saved IP match: %s -> %s (score %.2f)", source_image_id, matched_asset_id, similarity_score)
+        
+        # ✅ Enhanced logging
+        if scraped_data:
+            logger.info(
+                "✅ Saved IP match with scraped data: %s -> %s (score %.2f, page_url: %s)",
+                source_image_id,
+                matched_asset_id,
+                similarity_score,
+                scraped_data.get("page_url", "N/A")
+            )
+        else:
+            logger.info(
+                "✅ Saved IP match: %s -> %s (score %.2f) [No scraped data]",
+                source_image_id,
+                matched_asset_id,
+                similarity_score
+            )
+        
         return db_match
     except Exception as e:
         db.rollback()

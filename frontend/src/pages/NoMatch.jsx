@@ -1,8 +1,10 @@
 // pages/NoMatch.jsx
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { usePageTitle } from "../hook/userPageTitle";
 
 export default function NoMatch() {
+  usePageTitle("No Match")
   const navigate = useNavigate();
   const location = useLocation();
   const { image } = location.state || {};

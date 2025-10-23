@@ -1,63 +1,49 @@
+// src/pages/SignIn.jsx
 import { useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import Footer from "./Footer"; // Import Footer component
+import { GoogleLogin } from '@react-oauth/google';
+import { jwtDecode } from 'jwt-decode';
+import Navigation from "../components/layout/Navigation";
+import Footer from "../components/layout/Footer";
+import { buildUrl, API_CONFIG } from "../config/api";
+import { EmailInput, PasswordInput } from "../components/ui/Input";
+import Button from "../components/ui/Button";
+import { SuccessAlert, ErrorAlert, WarningAlert } from "../components/ui/Alert";
+import { usePageTitle } from "../hook/userPageTitle";
 
 export default function SignIn() {
+  usePageTitle("Sign In")
   const navigate = useNavigate();
   const location = useLocation();
-  
   const from = location.state?.from?.pathname || "/dashboard";
   
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
+  const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const validateEmail = (email) => {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(email);
-  };
-
-  const handleChange = (key, value) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
     setLoading(true);
-
-    if (!validateEmail(formData.email)) {
-      setError("Please enter a valid email address");
-      setLoading(false);
-      return;
-    }
-
-    const payload = {
-      email: formData.email,
-      password: formData.password,
-    };
+    setError("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/users/login`, {
+      const response = await fetch(buildUrl(API_CONFIG.endpoints.login), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(formData),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Login failed. Please try again.");
+        throw new Error(errorData.detail || "Login failed");
       }
 
       const data = await response.json();
       localStorage.setItem("token", data.access_token);
       
+      // Store user data if provided
       if (data.user) {
         localStorage.setItem("profile", JSON.stringify(data.user));
       }
@@ -71,134 +57,168 @@ export default function SignIn() {
     }
   };
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setLoading(true);
+      setError("");
+
+      // Decode the JWT token from Google
+      const decoded = jwtDecode(credentialResponse.credential);
+      console.log("Google user info:", decoded);
+
+      // Include full_name from Google
+      const params = new URLSearchParams({
+        email: decoded.email,
+        username: decoded.name || decoded.email.split('@')[0],
+        full_name: decoded.name || ""
+      });
+
+      // Send to your backend
+      const response = await fetch(
+        `${buildUrl(API_CONFIG.endpoints.googleLogin)}?${params.toString()}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Google login failed");
+      }
+
+      const data = await response.json();
+      localStorage.setItem("token", data.access_token);
+      
+      // Store user data if provided
+      if (data.user) {
+        localStorage.setItem("profile", JSON.stringify(data.user));
+      }
+      
+      setSuccess("Google login successful! Redirecting...");
+      setTimeout(() => navigate(from, { replace: true }), 1500);
+    } catch (err) {
+      console.error("Google login error:", err);
+      setError(err.message || "Failed to login with Google");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    setError("Google login failed. Please try again.");
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-950 via-emerald-950 to-slate-900">
-      <div className="flex-1 flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute top-20 left-20 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-20 right-20 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl"></div>
-        </div>
-        
+    <div className="min-h-screen flex flex-col">
+      {/* Navigation Bar */}
+      <Navigation />
+      
+      {/* Main Content */}
+      <div className="flex-1 flex items-center justify-center p-6 bg-gray-50">
         <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.6 }}
-          className="w-full max-w-md bg-gradient-to-br from-slate-900/50 to-emerald-950/30 backdrop-blur-xl rounded-3xl shadow-2xl border border-emerald-500/10 p-8 relative z-10"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 p-8"
         >
-          <div className="flex justify-center items-center gap-3 mb-8">
-            <motion.div
-              whileHover={{ rotate: 360 }}
-              transition={{ duration: 0.6 }}
-              className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-xl p-2.5 text-xl font-bold shadow-lg shadow-emerald-500/30"
-            >
-              👁️
-            </motion.div>
-            <h1 className="text-2xl font-extrabold text-emerald-100 tracking-tight">
-              Sign In to <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">Sentinel AI</span>
-            </h1>
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+                👁️
+              </div>
+              <h1 className="text-2xl font-extrabold text-gray-900 font-display">
+                Sentinel<span className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">AI</span>
+              </h1>
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
+            <p className="text-gray-600 text-sm">Sign in to your account to continue</p>
           </div>
 
+          {/* Warning for protected routes */}
           {location.state?.from && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-5 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl backdrop-blur-sm"
-            >
-              <p className="text-sm text-yellow-300 text-center flex items-center justify-center gap-2">
-                <span>🔒</span>
-                Please sign in to access this page
-              </p>
-            </motion.div>
+            <WarningAlert className="mb-4">
+              Please sign in to access this page
+            </WarningAlert>
           )}
 
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl backdrop-blur-sm"
-            >
-              <p className="text-red-300 text-sm text-center">{error}</p>
-            </motion.div>
-          )}
-          
-          {success && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl backdrop-blur-sm"
-            >
-              <p className="text-emerald-300 text-sm text-center">{success}</p>
-            </motion.div>
-          )}
+          {/* Alerts */}
+          {error && <ErrorAlert className="mb-4">{error}</ErrorAlert>}
+          {success && <SuccessAlert className="mb-4">{success}</SuccessAlert>}
 
+          {/* Google Sign In Button */}
+          <div className="mb-6">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={handleGoogleError}
+              useOneTap
+              theme="outline"
+              size="large"
+              width="100%"
+              text="signin_with"
+              shape="rectangular"
+            />
+          </div>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex-1 border-t border-gray-300"></div>
+            <span className="text-sm text-gray-500 font-medium">OR</span>
+            <div className="flex-1 border-t border-gray-300"></div>
+          </div>
+
+          {/* Email/Password Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {[
-              { label: "Email", key: "email", type: "email", placeholder: "you@example.com", icon: "📧" },
-              { label: "Password", key: "password", type: "password", placeholder: "Enter password", icon: "🔑" },
-            ].map((input) => (
-              <div key={input.key}>
-                <label className="block text-sm font-medium text-emerald-200/80 mb-2 flex items-center gap-2">
-                  <span>{input.icon}</span>
-                  {input.label}
-                </label>
-                <input
-                  type={input.type}
-                  value={formData[input.key]}
-                  onChange={(e) => handleChange(input.key, e.target.value)}
-                  placeholder={input.placeholder}
-                  required
-                  className="w-full bg-slate-800/50 border border-emerald-500/20 rounded-xl px-4 py-3 text-emerald-100 placeholder-emerald-200/30 focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none transition backdrop-blur-sm"
-                />
-              </div>
-            ))}
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              type="submit"
+            <EmailInput
+              label="Email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              required
               disabled={loading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3.5 rounded-xl font-semibold hover:from-emerald-600 hover:to-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/25"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Logging in...
-                </span>
-              ) : (
-                "Sign In"
-              )}
-            </motion.button>
+            />
+
+            <PasswordInput
+              label="Password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              required
+              disabled={loading}
+            />
+
+            <Button type="submit" loading={loading} size="lg" className="w-full">
+              Sign In
+            </Button>
           </form>
 
+          {/* Forgot Password Link */}
           <div className="mt-6 text-center">
-            <Link to="/forgot-password" className="text-sm text-emerald-400 hover:text-emerald-300 transition">
-              Forgot your password?
+            <Link to="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+              Forgot password?
             </Link>
           </div>
 
-          <p className="mt-6 text-sm text-center text-emerald-200/60">
+          {/* Sign Up Link */}
+          <p className="mt-6 text-sm text-center text-gray-600">
             Don't have an account?{" "}
-            <Link to="/signup" className="text-emerald-400 font-semibold hover:text-emerald-300 transition">
+            <Link to="/signup" className="text-blue-600 font-semibold hover:text-blue-700">
               Sign up
             </Link>
           </p>
 
-          <Link
-            to="/"
-            className="mt-6 flex items-center justify-center gap-2 text-emerald-200/80 hover:text-emerald-300 transition text-sm font-medium group"
+          {/* Back to Homepage */}
+          <Link 
+            to="/" 
+            className="mt-6 flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium transition"
           >
-            <motion.div
-              whileHover={{ rotate: -10 }}
-              className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-lg p-2 text-xs font-bold shadow-lg group-hover:shadow-emerald-500/30 transition"
-            >
-              👁️
-            </motion.div>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
             Back to Homepage
           </Link>
         </motion.div>
       </div>
 
-      {/* Use Footer Component */}
+      {/* Footer */}
       <Footer />
     </div>
   );

@@ -1,6 +1,11 @@
+// src/components/ImageUpload.jsx
 import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { API_CONFIG, buildUrl, getAuthHeadersForUpload } from "../config/api";
+import Button from "./ui/Button";
+import { ErrorAlert, SuccessAlert } from "./ui/Alert";
 
 export default function ImageUpload({ metrics, setMetrics }) {
   const [file, setFile] = useState(null);
@@ -12,7 +17,6 @@ export default function ImageUpload({ metrics, setMetrics }) {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     
-    // Validate file
     if (!selectedFile) {
       setError("No file selected");
       setFile(null);
@@ -20,28 +24,22 @@ export default function ImageUpload({ metrics, setMetrics }) {
       return;
     }
 
-    // Check file type
     if (!selectedFile.type.startsWith("image/")) {
-      setError("Please select a valid image file (JPEG, PNG, GIF, WebP)");
+      setError("Please select a valid image file");
       setFile(null);
       setPreview(null);
       return;
     }
 
-    // Check file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (selectedFile.size > maxSize) {
+    if (selectedFile.size > 10 * 1024 * 1024) {
       setError("Image size must be less than 10MB");
       setFile(null);
       setPreview(null);
       return;
     }
 
-    // Create preview
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setPreview(reader.result);
-    };
+    reader.onloadend = () => setPreview(reader.result);
     reader.readAsDataURL(selectedFile);
 
     setFile(selectedFile);
@@ -66,23 +64,19 @@ export default function ImageUpload({ metrics, setMetrics }) {
 
     const formData = new FormData();
     formData.append("file", file);
-    // ✅ REMOVED: formData.append("user_id", 2);
-    // Backend gets user_id from JWT token via current_user dependency
 
     try {
+      // Use the runPipeline endpoint to upload and detect matches
       const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/ip/run-pipeline`,
+        buildUrl(API_CONFIG.endpoints.runPipeline),
         formData,
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            // Don't set Content-Type - axios will set it automatically with boundary
-          },
-          timeout: 120000, // 2 minute timeout for processing
+          headers: getAuthHeadersForUpload(),
+          timeout: 120000, // 2 minutes timeout for pipeline processing
         }
       );
 
-      console.log("Upload response:", res.data);
+      console.log("Pipeline response:", res.data);
 
       if (res.data.success) {
         // Update metrics
@@ -92,11 +86,11 @@ export default function ImageUpload({ metrics, setMetrics }) {
           matches: prev.matches + (res.data.matches?.length || 0),
         }));
 
-        // Navigate to matches page
+        // Navigate to matches confirmation page with the results
         navigate(`/matches-confirm/${res.data.image_id}`, {
-          state: {
-            matches: res.data.matches || [],
-            image_id: res.data.image_id,
+          state: { 
+            matches: res.data.matches || [], 
+            image_id: res.data.image_id 
           },
         });
       } else {
@@ -110,15 +104,14 @@ export default function ImageUpload({ metrics, setMetrics }) {
         localStorage.removeItem("token");
         localStorage.removeItem("profile");
         setTimeout(() => navigate("/signin"), 2000);
-      } else if (err.code === "ECONNABORTED") {
-        setError("Upload timeout. Please try with a smaller image.");
+      } else if (err.response?.status === 400) {
+        setError(err.response?.data?.detail || "Invalid file or request");
+      } else if (err.response?.status === 500) {
+        setError(err.response?.data?.detail || "Server error while processing image");
+      } else if (err.code === 'ECONNABORTED') {
+        setError("Request timeout. The image is taking too long to process. Please try again.");
       } else {
-        setError(
-          err.response?.data?.detail ||
-          err.response?.data?.error ||
-          err.message ||
-          "Failed to upload image. Please try again."
-        );
+        setError(err.response?.data?.detail || err.message || "Failed to upload and detect matches");
       }
     } finally {
       setUploading(false);
@@ -132,52 +125,39 @@ export default function ImageUpload({ metrics, setMetrics }) {
   };
 
   return (
-    <div className="flex flex-col items-center space-y-4">
-      {/* File Input */}
-      <div className="w-full max-w-md">
+    <div className="space-y-6">
+      {/* Upload Area */}
+      <div className="w-full">
         <label
           htmlFor="file-upload"
-          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-emerald-500 transition bg-gray-50 hover:bg-emerald-50"
+          className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-gray-300 rounded-2xl cursor-pointer hover:border-blue-500 transition bg-gray-50 hover:bg-blue-50 group"
         >
           {preview ? (
-            <div className="relative w-full h-full p-4">
-              <img
-                src={preview}
-                alt="Preview"
-                className="w-full h-full object-contain"
-              />
-              <button
+            <div className="relative w-full h-full p-6">
+              <img src={preview} alt="Preview" className="w-full h-full object-contain rounded-xl" />
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
                 type="button"
                 onClick={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   handleClear();
                 }}
-                className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 transition"
+                className="absolute top-8 right-8 bg-red-600 text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-red-700 shadow-lg"
               >
                 ✕
-              </button>
+              </motion.button>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center pt-5 pb-6">
-              <svg
-                className="w-10 h-10 mb-3 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                />
-              </svg>
-              <p className="mb-2 text-sm text-gray-500">
-                <span className="font-semibold">Click to upload</span> or drag and drop
+              <div className="w-20 h-20 mb-6 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center text-4xl border border-blue-200 group-hover:scale-110 transition-transform">
+                📤
+              </div>
+              <p className="mb-2 text-lg font-semibold text-gray-700">
+                Click to upload or drag and drop
               </p>
-              <p className="text-xs text-gray-500">
-                PNG, JPG, GIF, WebP (max 10MB)
-              </p>
+              <p className="text-sm text-gray-500">PNG, JPG, GIF, WebP (max 10MB)</p>
             </div>
           )}
         </label>
@@ -190,64 +170,41 @@ export default function ImageUpload({ metrics, setMetrics }) {
         />
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="w-full max-w-md bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          <p className="text-sm font-medium">{error}</p>
-        </div>
-      )}
+      {/* Error Alert */}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
 
       {/* File Info */}
       {file && (
-        <div className="w-full max-w-md bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg">
-          <p className="text-sm">
-            <span className="font-medium">Selected:</span> {file.name}
-          </p>
-          <p className="text-xs text-emerald-600">
-            Size: {(file.size / 1024).toFixed(2)} KB
-          </p>
-        </div>
+        <SuccessAlert>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold">Selected: {file.name}</p>
+              <p className="text-xs mt-1">Size: {(file.size / 1024).toFixed(2)} KB</p>
+            </div>
+          </div>
+        </SuccessAlert>
       )}
 
       {/* Upload Button */}
-      <button
+      <Button
         onClick={handleUpload}
         disabled={!file || uploading}
-        className={`w-full max-w-md px-6 py-3 rounded-lg text-white font-semibold transition ${
-          !file || uploading
-            ? "bg-gray-400 cursor-not-allowed"
-            : "bg-emerald-600 hover:bg-emerald-700 shadow-sm hover:shadow-md"
-        }`}
-      >
-        {uploading ? (
-          <span className="flex items-center justify-center gap-2">
-            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
+        loading={uploading}
+        size="lg"
+        className="w-full"
+        icon={
+          !uploading && (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            Processing...
-          </span>
-        ) : (
-          "Upload & Detect IP Matches"
-        )}
-      </button>
+          )
+        }
+      >
+        {uploading ? "Processing Pipeline..." : "Upload & Detect IP Matches"}
+      </Button>
 
-      {/* Help Text */}
-      <p className="text-xs text-gray-500 text-center max-w-md">
-        Your image will be analyzed using AI to detect potential copyright matches.
-        This process may take 30-60 seconds.
+      <p className="text-xs text-gray-500 text-center">
+        🔒 Your image will be analyzed using AI to detect potential copyright matches. This may take 30-60 seconds.
       </p>
     </div>
   );
