@@ -110,8 +110,21 @@ def reset_password_route(request: ResetPasswordRequest, db: Session = Depends(ge
 
 
 @router.post("/google-login", response_model=TokenResponse)
-def google_login(email: str, username: str = None, db: Session = Depends(get_db)):
-    return login_with_google(db, google_email=email, username=username)
+def google_login(
+    email: str, 
+    username: str = None,
+    full_name: str = None,  
+    db: Session = Depends(get_db)
+):
+    """
+    Login or create user with Google OAuth.
+    
+    Args:
+        email: Email from Google account (required)
+        username: Username (optional, defaults to email prefix)
+        full_name: Full name from Google (optional)
+    """
+    return login_with_google(db, google_email=email, username=username, full_name=full_name)
 
 
 @router.get("/me")
@@ -135,7 +148,7 @@ def get_current_user_profile(
                 db_user.profile_image_url, 
                 expiration=PROFILE_PICTURE_EXPIRATION
             )
-            user_data.profile_image_url = fresh_url
+            user_data.profile_picture = fresh_url
         except Exception as e:
             logger.error(f"Failed to generate presigned URL: {e}")
             # Keep the stored key/URL if presigned URL generation fails
@@ -158,6 +171,11 @@ def update_profile(
 
     updated_fields = form_data.dict(exclude_unset=True)
     
+    # Don't allow empty strings, convert to None
+    for key in list(updated_fields.keys()):
+        if updated_fields[key] == "":
+            del updated_fields[key]
+    
     # Validation
     for key, value in updated_fields.items():
         if key == "username" and value:
@@ -170,7 +188,7 @@ def update_profile(
             raise HTTPException(status_code=400, detail="Full name must be under 100 characters")
         if key == "bio" and value and len(value) > 500:
             raise HTTPException(status_code=400, detail="Bio must be under 500 characters")
-        if key == "phone_number" and value and not re.match(r"^\+?[\d\s-]{7,15}$", value):
+        if key == "phone_number" and value and not re.match(r"^\+?[\d\s()-]{7,20}$", value):
             raise HTTPException(status_code=400, detail="Invalid phone number format")
         
         # Don't allow direct profile_picture updates through this endpoint
@@ -279,6 +297,7 @@ async def upload_avatar(
             "success": True,
             "message": "Profile picture uploaded successfully",
             "url": presigned_url,  # Return presigned URL for frontend
+            "profile_picture": presigned_url,  # Also return as profile_picture for consistency
             "s3_key": s3_key  # Optional: return key for reference
         }
         
@@ -323,22 +342,3 @@ def delete_avatar(
         "message": "Profile picture deleted successfully",
         "s3_deleted": deleted
     }
-
-
-
-@router.post("/google-login", response_model=TokenResponse)
-def google_login(
-    email: str, 
-    username: str = None,
-    full_name: str = None,  
-    db: Session = Depends(get_db)
-):
-    """
-    Login or create user with Google OAuth.
-    
-    Args:
-        email: Email from Google account (required)
-        username: Username (optional, defaults to email prefix)
-        full_name: Full name from Google (optional)
-    """
-    return login_with_google(db, google_email=email, username=username, full_name=full_name)
