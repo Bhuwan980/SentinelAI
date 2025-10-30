@@ -1,4 +1,4 @@
-# ip_service/services/email_service.py
+# ip_service/services/email_service.py - FIXED
 import os
 import logging
 import aiosmtplib
@@ -7,10 +7,6 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from datetime import datetime
 from typing import Optional, Dict, Any
-
-# ❌ REMOVE THIS - it's too late here
-# from dotenv import load_dotenv
-# load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -218,10 +214,19 @@ For authenticity verification, please contact the sender directly.
     return body
 
 
-def validate_email_config() -> bool:
-    """Validate email configuration is set up correctly."""
+# ✅ FIX: Return tuple instead of bool
+def validate_email_config() -> tuple[bool, str]:
+    """
+    Validate email configuration is set up correctly.
+    
+    Returns:
+        tuple[bool, str]: (is_valid, message)
+    """
     if not EMAIL_USER or not EMAIL_PASS:
-        logger.error(f"❌ Email configuration missing - EMAIL_USER exists: {EMAIL_USER is not None}, EMAIL_PASS exists: {EMAIL_PASS is not None}")
-        return False
-    logger.info(f"✅ Email configuration valid. Using: {EMAIL_USER}")
-    return True
+        message = f"Email configuration missing - EMAIL_USER exists: {EMAIL_USER is not None}, EMAIL_PASS exists: {EMAIL_PASS is not None}"
+        logger.error(f"❌ {message}")
+        return False, message  # ✅ Returns tuple
+    
+    message = f"Email configuration valid. Using: {EMAIL_USER}"
+    logger.info(f"✅ {message}")
+    return True, message  # ✅ Returns tuple

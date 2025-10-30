@@ -469,261 +469,91 @@ async def download_image_content(image_url: str) -> Optional[bytes]:
 # FILE 3: ip_service/services/dmca_service.py
 # ═══════════════════════════════════════════════════════════════════════════════
 
-"""
-DMCA service with comprehensive report creation.
-Path: ip_service/services/dmca_service.py
-"""
-
-import logging
-import uuid
-from sqlalchemy.orm import Session
-from ip_service.models.ip_models import DmcaReports, IpMatches, Images, IpAssets
-from datetime import datetime
-from typing import Dict, Any, Optional
-
-logger = logging.getLogger(__name__)
-
-
-def create_dmca_report(
-    db: Session, 
-    user_id: int, 
-    match_id: int,
-    scraped_data: Dict[str, Any],
-    group_id: Optional[str] = None
-) -> DmcaReports:
-    """Create comprehensive DMCA report with all scraped data."""
-    
-    try:
-        match = db.query(IpMatches).filter(IpMatches.id == match_id).first()
-        if not match:
-            raise ValueError(f"Match not found: {match_id}")
-
-        source_image = db.query(Images).filter(Images.id == match.source_image_id).first()
-        matched_asset = db.query(IpAssets).filter(IpAssets.id == match.matched_asset_id).first()
-        
-        if not group_id:
-            group_id = str(uuid.uuid4())
-        
-        # Extract fields
-        infringing_url = scraped_data.get("page_url") or scraped_data.get("url", "Unknown")
-        suspected_image_url = scraped_data.get("suspected_image_url") or scraped_data.get("url")
-        thumbnail_url = scraped_data.get("thumbnail_url") or scraped_data.get("thumbnail")
-        original_image_url = source_image.s3_path if source_image else None
-        
-        report = DmcaReports(
-            user_id=user_id,
-            match_id=match_id,
-            original_asset_id=matched_asset.id if matched_asset else None,
-            infringement_group_id=group_id,
-            
-            # URLs
-            infringing_url=infringing_url,
-            suspected_image_url=suspected_image_url,
-            original_image_url=original_image_url,
-            thumbnail_url=thumbnail_url,
-            screenshot_url=f"https://s3.amazonaws.com/sentinelai-dmca/screenshots/{match_id}.jpg",
-            
-            # Attribution
-            source_domain=scraped_data.get("source_domain"),
-            source_name=scraped_data.get("source_name"),
-            page_title=scraped_data.get("page_title") or scraped_data.get("title"),
-            
-            # Commercial
-            is_product=scraped_data.get("is_product", False),
-            product_price=scraped_data.get("product_price"),
-            product_currency=scraped_data.get("product_currency"),
-            marketplace=scraped_data.get("marketplace"),
-            
-            # Similarity
-            similarity_score=scraped_data.get("similarity_score") or scraped_data.get("similarity", 0.0),
-            serp_position=scraped_data.get("serp_position") or scraped_data.get("position"),
-            
-            # Context
-            page_description=scraped_data.get("page_description"),
-            page_snippet=scraped_data.get("page_snippet"),
-            page_author=scraped_data.get("page_author"),
-            page_tags=scraped_data.get("page_tags"),
-            source_logo=scraped_data.get("source_logo"),
-            best_guess=scraped_data.get("best_guess"),
-            
-            # Image details
-            image_width=scraped_data.get("image_width"),
-            image_height=scraped_data.get("image_height"),
-            image_format=scraped_data.get("image_format"),
-            
-            # Raw data
-            raw_serp_data=scraped_data.get("raw_serp_data") or scraped_data,
-            
-            # Legacy
-            image_caption=scraped_data.get("caption") or matched_asset.title if matched_asset else None,
-            
-            # Status
-            status="pending",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-            detected_at=datetime.utcnow()
-        )
-        
-        db.add(report)
-        db.commit()
-        db.refresh(report)
-        
-        logger.info(f"✅ Created DMCA report {report.id} for match {match_id}")
-        return report
-        
-    except Exception as e:
-        db.rollback()
-        logger.exception(f"❌ Failed to create DMCA report: {e}")
-        raise
-
-
-def get_dmca_reports(db: Session, user_id: int, limit: int = 100) -> list:
-    """Get all DMCA reports."""
-    try:
-        reports = (
-            db.query(DmcaReports)
-            .filter(DmcaReports.user_id == user_id)
-            .order_by(DmcaReports.created_at.desc())
-            .limit(limit)
-            .all()
-        )
-        logger.info(f"✅ Retrieved {len(reports)} reports for user {user_id}")
-        return reports
-    except Exception as e:
-        logger.exception(f"❌ Failed to get reports: {e}")
-        raise
-
-
-def get_grouped_dmca_reports(db: Session, user_id: int) -> Dict[str, list]:
-    """Get reports grouped by original asset."""
-    try:
-        reports = (
-            db.query(DmcaReports)
-            .filter(DmcaReports.user_id == user_id)
-            .order_by(DmcaReports.created_at.desc())
-            .all()
-        )
-        
-        grouped = {}
-        for report in reports:
-            asset_id = report.original_asset_id or "ungrouped"
-            if asset_id not in grouped:
-                grouped[asset_id] = []
-            grouped[asset_id].append(report)
-        
-        logger.info(f"✅ Retrieved {len(reports)} reports in {len(grouped)} groups")
-        return grouped
-        
-    except Exception as e:
-        logger.exception(f"❌ Failed to get grouped reports: {e}")
-        raise
-
-
-def update_dmca_status(db: Session, report_id: int, status: str) -> DmcaReports:
-    """Update report status."""
-    try:
-        report = db.query(DmcaReports).filter(DmcaReports.id == report_id).first()
-        if not report:
-            raise ValueError(f"Report not found: {report_id}")
-        
-        report.status = status
-        report.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(report)
-        
-        logger.info(f"✅ Updated report {report_id} status to {status}")
-        return report
-        
-    except Exception as e:
-        db.rollback()
-        logger.exception(f"❌ Failed to update report: {e}")
-        raise
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FILE 4: ip_service/routes/ip_routes.py - CRITICAL UPDATE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-"""
-Updated IP Routes with comprehensive DMCA report creation.
-Path: ip_service/routes/ip_routes.py
+# """
+# Updated IP Routes with comprehensive DMCA report creation.
+# Path: ip_service/routes/ip_routes.py
 
-CRITICAL UPDATE in /confirm-match/{match_id} endpoint
-"""
+# CRITICAL UPDATE in /confirm-match/{match_id} endpoint
+# """
 
-# Add this import at the top
-from ip_service.services.dmca_service import create_dmca_report
+# # Add this import at the top
+# from ip_service.services.dmca_service import create_dmca_report
 
-# REPLACE your existing /confirm-match/{match_id} endpoint with this:
+# # REPLACE your existing /confirm-match/{match_id} endpoint with this:
 
-@ip_router.post("/confirm-match/{match_id}")
-async def confirm_match(
-    match_id: int, 
-    request: ConfirmMatchRequest, 
-    current_user=Depends(get_current_user), 
-    db: Session = Depends(get_db)
-):
-    """Confirm match and create comprehensive DMCA report."""
-    try:
-        # Get match
-        match = db.query(IpMatches).filter(IpMatches.id == match_id).first()
-        if not match:
-            raise HTTPException(status_code=404, detail="Match not found")
+# @ip_router.post("/confirm-match/{match_id}")
+# async def confirm_match(
+#     match_id: int, 
+#     request: ConfirmMatchRequest, 
+#     current_user=Depends(get_current_user), 
+#     db: Session = Depends(get_db)
+# ):
+#     """Confirm match and create comprehensive DMCA report."""
+#     try:
+#         # Get match
+#         match = db.query(IpMatches).filter(IpMatches.id == match_id).first()
+#         if not match:
+#             raise HTTPException(status_code=404, detail="Match not found")
         
-        # Verify ownership
-        source_image = db.query(Images).filter(Images.id == match.source_image_id).first()
-        if not source_image or source_image.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
+#         # Verify ownership
+#         source_image = db.query(Images).filter(Images.id == match.source_image_id).first()
+#         if not source_image or source_image.user_id != current_user.id:
+#             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Update confirmation
-        match.user_confirmed = request.user_confirmed
-        db.commit()
-        logger.info(f"✅ Match {match_id} confirmed: {request.user_confirmed}")
+#         # Update confirmation
+#         match.user_confirmed = request.user_confirmed
+#         db.commit()
+#         logger.info(f"✅ Match {match_id} confirmed: {request.user_confirmed}")
 
-        # Create DMCA report if confirmed
-        if request.user_confirmed:
-            try:
-                # Get scraped data from match
-                scraped_data = match.scraped_data or {}
+#         # Create DMCA report if confirmed
+#         if request.user_confirmed:
+#             try:
+#                 # Get scraped data from match
+#                 scraped_data = match.scraped_data or {}
                 
-                # If no scraped data, create basic report
-                if not scraped_data:
-                    logger.warning(f"⚠️ No scraped data for match {match_id}, using basic data")
-                    matched_asset = db.query(IpAssets).filter(IpAssets.id == match.matched_asset_id).first()
+#                 # If no scraped data, create basic report
+#                 if not scraped_data:
+#                     logger.warning(f"⚠️ No scraped data for match {match_id}, using basic data")
+#                     matched_asset = db.query(IpAssets).filter(IpAssets.id == match.matched_asset_id).first()
                     
-                    scraped_data = {
-                        "page_url": matched_asset.file_url if matched_asset else "Unknown",
-                        "suspected_image_url": matched_asset.file_url if matched_asset else "Unknown",
-                        "page_title": matched_asset.title if matched_asset else "Untitled",
-                        "similarity_score": float(match.similarity_score) if match.similarity_score else 0.0,
-                    }
+#                     scraped_data = {
+#                         "page_url": matched_asset.file_url if matched_asset else "Unknown",
+#                         "suspected_image_url": matched_asset.file_url if matched_asset else "Unknown",
+#                         "page_title": matched_asset.title if matched_asset else "Untitled",
+#                         "similarity_score": float(match.similarity_score) if match.similarity_score else 0.0,
+#                     }
                 
-                # Create comprehensive DMCA report
-                report = create_dmca_report(
-                    db=db,
-                    user_id=current_user.id,
-                    match_id=match_id,
-                    scraped_data=scraped_data
-                )
+#                 # Create comprehensive DMCA report
+#                 report = create_dmca_report(
+#                     db=db,
+#                     user_id=current_user.id,
+#                     match_id=match_id,
+#                     scraped_data=scraped_data
+#                 )
                 
-                logger.info(f"✅ Created DMCA report {report.id} for match {match_id}")
+#                 logger.info(f"✅ Created DMCA report {report.id} for match {match_id}")
                 
-            except Exception as dmca_error:
-                logger.exception(f"❌ Failed to create DMCA report: {dmca_error}")
-                # Don't fail the request
-                logger.warning(f"⚠️ Match confirmed but DMCA creation failed")
+#             except Exception as dmca_error:
+#                 logger.exception(f"❌ Failed to create DMCA report: {dmca_error}")
+#                 # Don't fail the request
+#                 logger.warning(f"⚠️ Match confirmed but DMCA creation failed")
 
-        return {"success": True, "message": "Match confirmed successfully"}
+#         return {"success": True, "message": "Match confirmed successfully"}
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.exception(f"❌ Failed to confirm match: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         db.rollback()
+#         logger.exception(f"❌ Failed to confirm match: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FILE 5: Alembic Migration Script
-# ═══════════════════════════════════════════════════════════════════════════════
+# # ═══════════════════════════════════════════════════════════════════════════════
+# # FILE 5: Alembic Migration Script
+# # ═══════════════════════════════════════════════════════════════════════════════
 

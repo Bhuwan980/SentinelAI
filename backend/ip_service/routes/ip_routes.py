@@ -626,6 +626,8 @@ def get_dmca_reports(
         raise HTTPException(status_code=500, detail=f"Failed to fetch reports: {str(e)}")
 
 
+# REPLACE THE send_dmca_report_email ENDPOINT in ip_routes.py with this:
+
 @ip_router.post("/dmca/report/{report_id}/send-email")
 async def send_dmca_report_email(
     report_id: int,
@@ -635,7 +637,7 @@ async def send_dmca_report_email(
 ):
     """Send a DMCA report via email."""
     try:
-        # Validate email configuration
+        # ✅ FIX 1: validate_email_config now returns tuple
         email_config_valid, config_message = validate_email_config()
         if not email_config_valid:
             raise HTTPException(
@@ -652,13 +654,54 @@ async def send_dmca_report_email(
         if not report:
             raise HTTPException(status_code=404, detail="Report not found or access denied")
         
-        # Send email
+        # ✅ FIX 2: Prepare report_data as dictionary (not report object)
+        report_data = {
+            'id': report.id,
+            'infringing_url': report.infringing_url,
+            'original_image_url': getattr(report, 'original_image_url', 'N/A'),
+            'similarity_score': report.similarity_score,
+            'created_at': report.created_at.isoformat() if report.created_at else datetime.utcnow().isoformat(),
+            'image_caption': getattr(report, 'image_caption', None)
+        }
+        
+        # ✅ FIX 3: Prepare user_info as dictionary
+        user_info = {
+            'full_name': current_user.full_name,
+            'username': current_user.username,
+            'email': current_user.email,
+            'phone_number': getattr(current_user, 'phone_number', None)
+        }
+        
+        # ✅ FIX 4: Generate or get PDF path
+        pdf_path = f"/tmp/dmca_report_{report_id}.pdf"
+        
+        # Generate PDF if it doesn't exist
+        if not os.path.exists(pdf_path):
+            try:
+                from ip_service.services.dmca_pdf_generator import generate_dmca_pdf
+                pdf_path = generate_dmca_pdf(report)
+                logger.info(f"✅ Generated PDF using dmca_pdf_generator")
+            except ImportError:
+                # Fallback: Basic PDF generation
+                logger.warning("⚠️ dmca_pdf_generator not found, using basic PDF generation")
+                from reportlab.pdfgen import canvas
+                c = canvas.Canvas(pdf_path)
+                c.setFont("Helvetica-Bold", 16)
+                c.drawString(100, 750, f"DMCA Takedown Notice - Report #{report_id}")
+                c.setFont("Helvetica", 10)
+                c.drawString(100, 720, f"Infringing URL: {report.infringing_url or 'N/A'}")
+                c.drawString(100, 700, f"Similarity: {report.similarity_score or 0:.2%}")
+                c.drawString(100, 680, f"Created: {report.created_at or 'N/A'}")
+                c.save()
+                logger.info(f"✅ Generated basic PDF")
+        
+        # ✅ FIX 5: Call send_dmca_email with CORRECT parameters
         email_result = await send_dmca_email(
-            report=report,
             recipient_email=request.recipient_email,
             recipient_name=request.recipient_name,
-            sender_name=current_user.full_name or current_user.username,
-            sender_email=current_user.email,
+            report_data=report_data,          # ← Dict, not object
+            pdf_path=pdf_path,                 # ← Path string
+            user_info=user_info,               # ← Dict, not object
             additional_message=request.additional_message
         )
         
