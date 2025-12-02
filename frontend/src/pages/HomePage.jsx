@@ -6,6 +6,7 @@ import MainLayout from "../components/layout/MainLayout";
 import { FeatureCard } from "../components/ui/Card";
 import Button, { AccentButton } from "../components/ui/Button";
 import { usePageTitle } from "../hook/userPageTitle";
+import { LogoIcon } from "../components/ui/Logo";
 
 export default function HomePage() {
   usePageTitle("Home")
@@ -88,17 +89,18 @@ export default function HomePage() {
   if (isLoggedIn) {
     return (
       <MainLayout>
-        {/* WELCOME BACK HERO SECTION */}
+        {/* WELCOME BACK HERO SECTION - Light Gray/White Gradient */}
         <section 
           className="relative overflow-hidden"
           style={{
-            background: 'linear-gradient(180deg, #0F172A 0%, #1E3A8A 100%)',
+            background: 'linear-gradient(180deg, #F8FAFC 0%, #E0F2FE 100%)',
             minHeight: '70vh'
           }}
         >
-          <div className="absolute inset-0 opacity-30">
-            <div className="absolute top-20 left-20 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl"></div>
-            <div className="absolute bottom-20 right-20 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl"></div>
+          {/* Subtle decorative elements */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-20 left-20 w-96 h-96 bg-blue-400/30 rounded-full blur-3xl"></div>
+            <div className="absolute bottom-20 right-20 w-96 h-96 bg-cyan-400/30 rounded-full blur-3xl"></div>
           </div>
 
           <div className="relative z-10 max-w-6xl mx-auto px-6 py-32 text-center">
@@ -107,18 +109,23 @@ export default function HomePage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8 }}
             >
-              <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 backdrop-blur-md border border-white/20 mb-8">
+              {/* Logo Icon */}
+              <div className="mb-8 flex justify-center">
+                <LogoIcon size="xl" className="drop-shadow-2xl" />
+              </div>
+
+              <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white border border-blue-200 shadow-sm mb-8">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
                 </span>
-                <span className="font-bold text-white text-sm">Active Protection</span>
+                <span className="font-bold text-blue-600 text-sm">Active Protection</span>
               </div>
 
-              <h1 className="text-6xl md:text-7xl font-extrabold text-white mb-6 leading-tight font-display">
+              <h1 className="text-6xl md:text-7xl font-extrabold text-gray-900 mb-6 leading-tight font-display">
                 Welcome Back! 👋
               </h1>
-              <p className="text-xl text-white/80 mb-8 max-w-3xl mx-auto leading-relaxed">
+              <p className="text-xl text-gray-700 mb-8 max-w-3xl mx-auto leading-relaxed">
                 Your intellectual property is being monitored 24/7. Check your dashboard for the latest activity.
               </p>
 
@@ -148,7 +155,7 @@ export default function HomePage() {
         </section>
 
         {/* QUICK STATS SECTION */}
-        <section className="py-24 px-6 bg-gray-50">
+        <section className="py-24 px-6 bg-white">
           <div className="max-w-6xl mx-auto">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -197,18 +204,18 @@ export default function HomePage() {
   // Original content for non-authenticated users
   return (
     <MainLayout>
-      {/* HERO SECTION - Deep Blue Gradient */}
+      {/* HERO SECTION - Light Gradient (Slate to Sky Blue) */}
       <section 
         className="relative overflow-hidden"
         style={{
-          background: 'linear-gradient(180deg, #0F172A 0%, #1E3A8A 100%)',
+          background: 'linear-gradient(180deg, #F1F5F9 0%, #E0F2FE 100%)',
           minHeight: '90vh'
         }}
       >
-        {/* Subtle particle effect backdrop */}
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-20 left-20 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-20 right-20 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl"></div>
+        {/* Subtle decorative backdrop */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-20 w-96 h-96 bg-blue-400/40 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-20 right-20 w-96 h-96 bg-cyan-400/40 rounded-full blur-3xl"></div>
         </div>
 
         <div className="relative z-10 max-w-6xl mx-auto px-6 py-32 text-center">
@@ -217,22 +224,27 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
           >
+            {/* Logo Icon */}
+            <div className="mb-8 flex justify-center">
+              <LogoIcon size="xl" className="drop-shadow-2xl" />
+            </div>
+
             {/* Trial Badge */}
-            <div className="inline-flex flex-col items-center gap-2 mb-8 px-6 py-3 rounded-full bg-white/10 backdrop-blur-md border border-white/20">
+            <div className="inline-flex flex-col items-center gap-2 mb-8 px-6 py-3 rounded-full bg-white border border-blue-200 shadow-sm">
               <div className="flex items-center gap-3">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
                 </span>
-                <span className="font-bold text-white text-sm">Free 14-day trial</span>
+                <span className="font-bold text-blue-600 text-sm">Free 14-day trial</span>
               </div>
-              <span className="text-xs text-white/70">No credit card required</span>
+              <span className="text-xs text-gray-600">No credit card required</span>
             </div>
 
-            <h1 className="text-6xl md:text-7xl font-extrabold text-white mb-6 leading-tight font-display">
+            <h1 className="text-6xl md:text-7xl font-extrabold text-gray-900 mb-6 leading-tight font-display">
               Advanced Protection Features
             </h1>
-            <p className="text-xl text-white/80 mb-8 max-w-3xl mx-auto leading-relaxed">
+            <p className="text-xl text-gray-700 mb-8 max-w-3xl mx-auto leading-relaxed">
               Comprehensive intellectual property protection powered by cutting-edge AI technology
             </p>
 
@@ -254,7 +266,7 @@ export default function HomePage() {
       </section>
 
       {/* FEATURES SECTION */}
-      <section className="py-24 px-6 bg-gray-50">
+      <section className="py-24 px-6 bg-white">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -262,7 +274,7 @@ export default function HomePage() {
             viewport={{ once: true }}
             className="text-center mb-16"
           >
-            <div className="inline-block px-4 py-2 rounded-full bg-blue-100 text-blue-600 text-sm font-semibold mb-6">
+            <div className="inline-block px-4 py-2 rounded-full bg-blue-50 text-blue-600 text-sm font-semibold mb-6 border border-blue-200">
               ⚡ Powerful Features
             </div>
             <h2 className="text-5xl font-extrabold text-gray-900 mb-4 font-display">
@@ -294,7 +306,7 @@ export default function HomePage() {
       </section>
 
       {/* WHY CHOOSE SECTION */}
-      <section className="py-24 px-6 bg-white">
+      <section className="py-24 px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -303,10 +315,10 @@ export default function HomePage() {
             className="text-center mb-16"
           >
             <h2 className="text-5xl font-extrabold text-gray-900 mb-6 font-display">
-              Why Choose Sentinel.ai?
+              Why Choose Sentinel AI?
             </h2>
             <p className="text-gray-600 text-lg max-w-3xl mx-auto">
-              Join thousands of creators, artists, and businesses who trust Sentinel.ai to protect their most valuable digital assets
+              Join thousands of creators, artists, and businesses who trust Sentinel AI to protect their most valuable digital assets
             </p>
           </motion.div>
 
@@ -332,7 +344,7 @@ export default function HomePage() {
       </section>
 
       {/* QUICK SETUP SECTION */}
-      <section className="py-24 px-6 bg-gray-50">
+      <section className="py-24 px-6 bg-white">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -340,7 +352,7 @@ export default function HomePage() {
             viewport={{ once: true }}
             className="text-center mb-16"
           >
-            <div className="inline-block px-4 py-2 rounded-full bg-blue-100 text-blue-600 text-sm font-semibold mb-6">
+            <div className="inline-block px-4 py-2 rounded-full bg-blue-50 text-blue-600 text-sm font-semibold mb-6 border border-blue-200">
               ⚡ Quick Setup
             </div>
             <h2 className="text-5xl font-extrabold text-gray-900 mb-4 font-display">
@@ -373,16 +385,16 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* FINAL CTA SECTION */}
+      {/* FINAL CTA SECTION - Lighter gradient */}
       <section 
         className="relative py-28 px-6 overflow-hidden"
         style={{
-          background: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%)'
+          background: 'linear-gradient(135deg, #F1F5F9 0%, #DBEAFE 100%)'
         }}
       >
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute top-20 left-20 w-96 h-96 bg-cyan-500/30 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-20 right-20 w-96 h-96 bg-blue-500/30 rounded-full blur-3xl"></div>
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-20 w-96 h-96 bg-cyan-400/50 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-20 right-20 w-96 h-96 bg-blue-400/50 rounded-full blur-3xl"></div>
         </div>
 
         <div className="relative z-10 max-w-3xl mx-auto text-center">
@@ -391,18 +403,18 @@ export default function HomePage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-white/10 backdrop-blur-md border border-white/20 mb-8">
+            <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-white border border-blue-200 shadow-sm mb-8">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
               </span>
-              <span className="text-white font-semibold text-sm">Ready to Protect Your IP?</span>
+              <span className="text-blue-600 font-semibold text-sm">Ready to Protect Your IP?</span>
             </div>
 
-            <h2 className="text-5xl font-bold text-white mb-6 font-display">
+            <h2 className="text-5xl font-bold text-gray-900 mb-6 font-display">
               Join the future of intellectual property protection
             </h2>
-            <p className="text-xl text-white/80 mb-12 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-700 mb-12 max-w-2xl mx-auto">
               AI-powered monitoring and enforcement for creators, artists, and businesses
             </p>
 
@@ -424,7 +436,7 @@ export default function HomePage() {
               </Button>
             </div>
 
-            <p className="mt-8 text-sm text-white/60">
+            <p className="mt-8 text-sm text-gray-600">
               ✨ No credit card required • 🚀 Start in 2 minutes • ✅ Cancel anytime
             </p>
           </motion.div>

@@ -1,11 +1,13 @@
 // src/components/layout/Navigation.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { API_CONFIG, buildUrl, getAuthHeaders } from "../../config/api";
+import Logo, { LogoGradient } from "../ui/Logo";
 
 export default function Navigation() {
   const navigate = useNavigate();
+  const location = useLocation();
   const dropdownRef = useRef(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [profile, setProfile] = useState(null);
@@ -72,6 +74,36 @@ export default function Navigation() {
     { label: "Review History", path: "/review-history", icon: "📜" },
   ];
 
+  // Helper function to check if link is active
+  const isActive = (path) => {
+    return location.pathname === path;
+  };
+
+  // NavLink component with active state
+  const NavLink = ({ to, children }) => {
+    const active = isActive(to);
+    return (
+      <Link 
+        to={to} 
+        className={`relative font-medium transition ${
+          active 
+            ? 'text-blue-600' 
+            : 'text-gray-700 hover:text-blue-600'
+        }`}
+      >
+        {children}
+        {active && (
+          <motion.div
+            layoutId="activeTab"
+            className="absolute -bottom-[21px] left-0 right-0 h-0.5 bg-blue-600"
+            initial={false}
+            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+          />
+        )}
+      </Link>
+    );
+  };
+
   const ProfileAvatar = ({ size = "w-9 h-9", textSize = "text-sm" }) => {
     if (profile?.profile_picture) {
       return (
@@ -97,25 +129,19 @@ export default function Navigation() {
         <motion.div
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="flex items-center gap-3 cursor-pointer"
+          className="cursor-pointer"
           onClick={() => navigate("/")}
         >
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white text-xl font-bold shadow-lg">
-            👁️
-          </div>
-          <h1 className="font-extrabold text-xl tracking-tight font-display">
-            <span className="text-gray-900">Sentinel</span>
-            <span className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">AI</span>
-          </h1>
+          <LogoGradient size="md" />
         </motion.div>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex gap-8 text-sm font-medium items-center">
+        <nav className="hidden md:flex gap-8 text-sm items-center">
           {localStorage.getItem("token") ? (
             <>
-              <Link to="/dashboard" className="text-gray-700 hover:text-blue-600 transition">Dashboard</Link>
-              <Link to="/matches" className="text-gray-700 hover:text-blue-600 transition">Matches</Link>
-              <Link to="/reports" className="text-gray-700 hover:text-blue-600 transition">Reports</Link>
+              <NavLink to="/dashboard">Dashboard</NavLink>
+              <NavLink to="/matches">Matches</NavLink>
+              <NavLink to="/reports">Reports</NavLink>
               
               <div className="relative" ref={dropdownRef}>
                 <button
@@ -161,8 +187,8 @@ export default function Navigation() {
             </>
           ) : (
             <>
-              <Link to="/about" className="text-gray-700 hover:text-blue-600 transition">About</Link>
-              <Link to="/contact" className="text-gray-700 hover:text-blue-600 transition">Contact</Link>
+              <NavLink to="/about">About</NavLink>
+              <NavLink to="/contact">Contact</NavLink>
               <Link to="/signin" className="px-5 py-2 rounded-xl text-gray-700 border border-gray-300 hover:border-blue-600 hover:text-blue-600 transition">
                 Sign In
               </Link>
@@ -207,9 +233,15 @@ export default function Navigation() {
                       <p className="text-xs text-gray-600">{profile?.email}</p>
                     </div>
                   </div>
-                  <MobileLink to="/dashboard" onClick={() => setMobileMenuOpen(false)}>Dashboard</MobileLink>
-                  <MobileLink to="/matches" onClick={() => setMobileMenuOpen(false)}>Matches</MobileLink>
-                  <MobileLink to="/reports" onClick={() => setMobileMenuOpen(false)}>Reports</MobileLink>
+                  <MobileLink to="/dashboard" onClick={() => setMobileMenuOpen(false)} active={isActive("/dashboard")}>
+                    Dashboard
+                  </MobileLink>
+                  <MobileLink to="/matches" onClick={() => setMobileMenuOpen(false)} active={isActive("/matches")}>
+                    Matches
+                  </MobileLink>
+                  <MobileLink to="/reports" onClick={() => setMobileMenuOpen(false)} active={isActive("/reports")}>
+                    Reports
+                  </MobileLink>
                   {dropdownOptions.map((option) => (
                     <MobileLink key={option.label} to={option.path} onClick={() => setMobileMenuOpen(false)}>
                       {option.icon} {option.label}
@@ -224,8 +256,12 @@ export default function Navigation() {
                 </>
               ) : (
                 <>
-                  <MobileLink to="/about" onClick={() => setMobileMenuOpen(false)}>About</MobileLink>
-                  <MobileLink to="/contact" onClick={() => setMobileMenuOpen(false)}>Contact</MobileLink>
+                  <MobileLink to="/about" onClick={() => setMobileMenuOpen(false)} active={isActive("/about")}>
+                    About
+                  </MobileLink>
+                  <MobileLink to="/contact" onClick={() => setMobileMenuOpen(false)} active={isActive("/contact")}>
+                    Contact
+                  </MobileLink>
                   <Link to="/signin" onClick={() => setMobileMenuOpen(false)} className="block w-full text-center px-5 py-3 rounded-xl border border-gray-300 text-gray-700">
                     Sign In
                   </Link>
@@ -242,9 +278,17 @@ export default function Navigation() {
   );
 }
 
-function MobileLink({ to, onClick, children }) {
+function MobileLink({ to, onClick, children, active }) {
   return (
-    <Link to={to} onClick={onClick} className="block px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 transition">
+    <Link 
+      to={to} 
+      onClick={onClick} 
+      className={`block px-4 py-3 rounded-xl transition font-medium ${
+        active 
+          ? 'bg-blue-50 text-blue-600' 
+          : 'text-gray-700 hover:bg-gray-50'
+      }`}
+    >
       {children}
     </Link>
   );

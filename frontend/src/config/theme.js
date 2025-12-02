@@ -33,8 +33,6 @@ export const theme = {
       900: '#164E63',
     },
     
-
-
     // Backgrounds
     background: {
       offWhite: '#F9FAFB',      // Main light background
@@ -42,6 +40,7 @@ export const theme = {
       dark: '#0F172A',           // Slate Dark (hero, dark sections)
       darkAlt: '#1E293B',        // Neural Gray (secondary panels)
       graphite: '#111827',       // Graphite Black (text, headers)
+      footer: '#F9FAFB',         // Light gray - Clean and modern
     },
     
     // Text
