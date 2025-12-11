@@ -27,7 +27,7 @@ export default function AboutPage() {
     {
       ini: "HK",
       name: "Ms. Harpreet Kaur",
-      role: "Project Manager",
+      role: "Product/Project Manager",
       desc: "Master's in Computer Science. Passionate about Agile, Scrum, and managing teams for impactful results.",
       color: "from-green-600 to-emerald-500"
     },
